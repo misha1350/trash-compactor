@@ -18,22 +18,36 @@ A utility for intelligent file compression on Windows 10/11 systems using the bu
 
 ## Installation
 
-1. Open PowerShell as Administrator:
+### Option 1: Using the Executable (Recommended)
+
+1. Download the latest release from the [Releases page](https://github.com/misha1350/trash-compactor/releases)
+2. Extract the zip file
+3. Open PowerShell as Administrator:
     - Right-click Start Menu
     - Select "Windows PowerShell (Admin)" or "Windows Terminal (Admin)"
+4. Navigate to the extracted folder:
+    ```powershell
+    cd path\to\extracted\folder
+    ```
+5. Run the executable:
+    ```powershell
+    .\trash-compactor.exe
+    ```
 
+### Option 2: Running from Source
+
+1. Open PowerShell as Administrator
 2. Clone and navigate to the repository:
     ```powershell
     git clone https://github.com/misha1350/trash-compactor.git
     cd trash-compactor
     ```
-
 3. Run the program:
     ```powershell
     python main.py
     ```
 
-Note: Make sure Git and Python 3.8+ are installed on your system.
+Note: For Option 2, ensure Git and Python 3.8+ are installed on your system.
 
 ## Usage
 
