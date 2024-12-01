@@ -8,7 +8,6 @@ A utility for intelligent file compression on Windows 10/11 systems using the bu
 - Skips poorly-compressed file formats (zip, media files, etc.)
 - Skips already-compressed files (which compact.exe has already compressed)
 - Detailed compression statistics
-- Requires administrator privileges
 
 ## Requirements
 
