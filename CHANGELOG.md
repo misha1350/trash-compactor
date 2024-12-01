@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [0.2.0] - 2023-10-20
 ### Added
+- A splash screen
 - Path sanitizing to handle various input formats
 - Unicode support for file paths with non-ASCII characters
 - Significant speed improvements in file compression checks
