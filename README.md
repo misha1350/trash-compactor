@@ -20,16 +20,15 @@ A utility for intelligent file compression on Windows 10/11 systems using the bu
 
 ### Option 1: Using the Executable (Recommended)
 
-1. Download the latest release from the [Releases page](https://github.com/misha1350/trash-compactor/releases)
-2. Extract the zip file
-3. Open PowerShell as Administrator:
+1. [Download the latest release](https://github.com/misha1350/trash-compactor/releases/latest)
+2. Open PowerShell as Administrator:
     - Right-click Start Menu
     - Select "Windows PowerShell (Admin)" or "Windows Terminal (Admin)"
-4. Navigate to the extracted folder:
+3. Drag the downloaded file into the PowerShell window, or navigate to the folder that contains the downloaded app:
     ```powershell
-    cd path\to\extracted\folder
+    cd path\to\downloads
     ```
-5. Run the executable:
+4. Run the executable:
     ```powershell
     .\trash-compactor.exe
     ```
