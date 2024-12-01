@@ -48,7 +48,7 @@ A utility for intelligent file compression on Windows 10/11 systems using the bu
 Note: For Option 2, ensure Git and Python 3.8+ are installed on your system.
 
 Optional: you can compile the app yourself as I did, using PyInstaller:
-    ```powershell
+    ```
     python -m PyInstaller --onefile --name trash-compactor --uac-admin main.py 
     ```
 
