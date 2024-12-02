@@ -1,5 +1,5 @@
 # Trash-Compactor
-A utility for intelligent file compression on Windows 10/11 systems using the built-in NTFS compression algorithms and the "compact.exe" utility. Unlike CompactGUI, this utility automatically selects the optimal compression algorithm based on file size - this lets you squeeze the most out of the compression algorithms and get even smaller file sizes.
+A utility for intelligent file compression on Windows 10/11 systems using the built-in NTFS compression algorithms and Windows' built-in "compact.exe" utility. Unlike [CompactGUI](https://github.com/IridiumIO/CompactGUI) (another tool that is based on compact.exe and primarily designed for compressing Steam games), this utility automatically selects the optimal compression algorithm based on file size - this lets you squeeze the most out of the compression algorithms and get even smaller file sizes, all while avoiding unnecessary compression, keeping things DRY (also known as "Don't Repeat Yourself").
 
 ## Features
 
@@ -12,7 +12,6 @@ A utility for intelligent file compression on Windows 10/11 systems using the bu
 ## Requirements
 
 - Windows 10/11
-- Python 3.8+
 - Administrator privileges
 
 ## Installation
@@ -30,6 +29,10 @@ A utility for intelligent file compression on Windows 10/11 systems using the bu
 4. Run the executable:
     ```powershell
     .\trash-compactor.exe
+    ```
+    Verbose output:
+    ```powershell
+    .\trash-compactor.exe -v
     ```
 
 ### Option 2: Running from Source
@@ -69,3 +72,41 @@ To contribute to this project:
 1. Fork the repository.
 2. Create a new branch for your feature.
 3. Submit a pull request.
+
+## To-Do
+
+### Immediate Priorities (v0.2.x)
+- Add a flag for
+- Replace `compact.exe` calls with direct Windows API calls:
+  - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
+  - Use `GetFileAttributes()` to check compression state
+  - Remove subprocess spawning overhead
+- Add process priority management based on CPU core count
+- Fix incorrect reporting of already compressed files
+- Replace generic exception handling with specific error cases
+
+### Short-term Goals (v0.3.0)
+- Implement batch compression for multiple files or directories:
+  - Group files by target compression algorithm
+  - Process groups in parallel using worker threads
+  - Balance thread count based on CPU cores
+- Improve system directory exclusion (with configurable rules)
+- Add basic test suite for core functionality
+  - Implement a single-thread benchmark for checking if the CPU is fast enough to use LZX compression (not an Intel Atom with numerous, but weak cores)
+  - Test compression detection accuracy
+  - Verify API calls work correctly
+  - Check error handling paths
+
+### Long-term Goals (v0.x.x)
+- Implement smart compression detection:
+  - Use entropy analysis for compressibility estimation
+  - Sample data chunks strategically
+  - Cache results per file type
+- Quality of Life features
+  - More coloured output
+  - Saving user configuration with an optional `.ini` file
+- Research advanced compression methods:
+  - Evaluate alternative NTFS compression APIs, like [UPX](https://github.com/upx/upx)
+  - Consider filesystem-agnostic approaches (moving compressed files in/out of the source drive unpacks them)
+  - Benchmark different compression strategies
+  - Do something about it
