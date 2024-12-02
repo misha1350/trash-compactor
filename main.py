@@ -1,7 +1,7 @@
 import logging, os, argparse, sys
 from datetime import datetime
 from colorama import init, Fore, Style
-from src import compress_directory, print_compression_summary
+from src import compress_directory, print_compression_summary, get_cpu_info, should_use_lzx
 
 def is_admin():
     """Check if script has admin privileges"""
@@ -49,7 +49,7 @@ def main():
  / /  | | | (_| \__ \ | | |_____/ /__| (_) | | | | | | |_) | (_| | (__| || (_) | |   
  \/   |_|  \__,_|___/_| |_|     \____/\___/|_| |_| |_| .__/ \__,_|\___|\__\___/|_|   
                                                      |_|                             """)
-    version = "0.2.0"  # Update manually or via build process
+    version = "0.2.1"  # Update manually or via build process
     build_date = "who cares"
     print(Fore.GREEN + f"Version: {version}    Build Date: {build_date}\n")
     parser = argparse.ArgumentParser(description="Compress files using Windows NTFS compression")
@@ -67,6 +67,16 @@ def main():
         print(Fore.YELLOW + "\nPro tips:" + Style.RESET_ALL)
         print(Fore.CYAN + "• Run with -v to see what's happening under the hood 🔧")
         print(Fore.CYAN + "• Use -h to display the help message (boring stuff) 📖")
+
+    physical_cores, logical_cores = get_cpu_info()
+    if not should_use_lzx():
+        print(Fore.YELLOW + f"\nNotice: Your CPU has {physical_cores} cores and {logical_cores} threads.")
+        print("LZX compression is disabled by default for better system responsiveness.")
+        enable_lzx = input("Would you like to enable LZX compression anyway? (y/N): ").lower() == 'y'
+        if enable_lzx:
+            from src import config
+            config.COMPRESSION_ALGORITHMS['large'] = 'LZX'
+            logging.info("LZX compression enabled.")
     
     directory = args.directory
     if not directory:
