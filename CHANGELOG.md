@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2024-12-03
+### Added
+- Toggling LZX compression on/off with the `-x` flag - useful when your CPU is very slow or old (Intel Atom, Intel Celeron)
+- Flag stacking
+- A To-Do list of improvements for future releases (because I will not be making any new improvements any time soon)
 
 ## [0.2.1] - 2024-12-02
 ### Added
