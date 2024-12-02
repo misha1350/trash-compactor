@@ -1,7 +1,6 @@
 import logging, os, argparse, sys
-from datetime import datetime
 from colorama import init, Fore, Style
-from src import compress_directory, print_compression_summary, get_cpu_info, should_use_lzx
+from src import compress_directory, print_compression_summary, get_cpu_info, config
 
 def is_admin():
     """Check if script has admin privileges"""
@@ -55,9 +54,14 @@ def main():
     parser = argparse.ArgumentParser(description="Compress files using Windows NTFS compression")
     parser.add_argument("directory", nargs="?", help="Directory to compress")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug output")
+    parser.add_argument("-x", "--no-lzx", action="store_true", help="Disable LZX compression for better system responsiveness")
     args = parser.parse_args()
+    use_lzx = not args.no_lzx
     
     setup_logging(args.verbose)
+    
+    if args.verbose:
+        print(Fore.BLUE + "-v: Verbose output enabled" + Style.RESET_ALL)
     
     if not is_admin():
         logging.error("This script requires administrator privileges")
@@ -66,17 +70,21 @@ def main():
     if not args.verbose and not any(arg.startswith('-') for arg in sys.argv[1:]):
         print(Fore.YELLOW + "\nPro tips:" + Style.RESET_ALL)
         print(Fore.CYAN + "• Run with -v to see what's happening under the hood 🔧")
+        print(Fore.CYAN + "• Run with -x to disable LZX compression 🐌")
         print(Fore.CYAN + "• Use -h to display the help message (boring stuff) 📖")
 
     physical_cores, logical_cores = get_cpu_info()
-    if not should_use_lzx():
-        print(Fore.YELLOW + f"\nNotice: Your CPU has {physical_cores} cores and {logical_cores} threads.")
-        print("LZX compression is disabled by default for better system responsiveness.")
-        enable_lzx = input("Would you like to enable LZX compression anyway? (y/N): ").lower() == 'y'
-        if enable_lzx:
-            from src import config
-            config.COMPRESSION_ALGORITHMS['large'] = 'LZX'
-            logging.info("LZX compression enabled.")
+    if use_lzx:
+        config.COMPRESSION_ALGORITHMS['large'] = 'LZX'
+        logging.info(f"Using LZX compression (CPU deemed capable - it's got {physical_cores} cores and {logical_cores} threads)")
+    else:
+        # No need to modify 'COMPRESSION_ALGORITHMS' here since it defaults to 'XPRESS16K'
+        if args.no_lzx:
+            print(Fore.YELLOW + "-x: LZX compression disabled via command line flag.")
+        else:
+            print(Fore.YELLOW + f"\nNotice: Your CPU has {physical_cores} cores and {logical_cores} threads.")
+            print("LZX compression has been disabled for better system responsiveness.")
+            print("Your CPU may not be powerful enough for LZX compression.")
     
     directory = args.directory
     if not directory:
