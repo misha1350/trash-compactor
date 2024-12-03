@@ -76,13 +76,14 @@ To contribute to this project:
 ## To-Do
 
 ### Immediate Priorities (v0.2.x)
-- Add a flag for
+- Bring back the simple weak CPU core count check (to disable LZX automatically if run on a potato)
+- Fix incorrect reporting of how much space was saved after compression
+- Improve weak hardware detection
 - Replace `compact.exe` calls with direct Windows API calls:
   - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
   - Use `GetFileAttributes()` to check compression state
   - Remove subprocess spawning overhead
 - Add process priority management based on CPU core count
-- Fix incorrect reporting of already compressed files
 - Replace generic exception handling with specific error cases
 
 ### Short-term Goals (v0.3.0)
@@ -91,6 +92,13 @@ To contribute to this project:
   - Process groups in parallel using worker threads
   - Balance thread count based on CPU cores
 - Improve system directory exclusion (with configurable rules)
+- Implement Chromium cache directory detection to avoid compressing already compressed cache files, in order to:
+  - Exclude `*\Cache\Cache_Data\` directory compression (of Chromium-based web browsers and Electron apps)
+  - Exclude Telegram's `\tdata\user_data\cache` and `\tdata\user_data\media_cache` compression
+  - Exclude Microsoft Teams' `\LocalCache\Microsoft\MSTeams\*` compression
+  - Exclude other most popular web browsers' cache directories compression
+- Implement checking the compression status of the poorly compressed files in parallel (to make use of other cores)
+- Log this in the "info" channel to notify the user (me) about such files
 - Add basic test suite for core functionality
   - Implement a single-thread benchmark for checking if the CPU is fast enough to use LZX compression (not an Intel Atom with numerous, but weak cores)
   - Test compression detection accuracy
