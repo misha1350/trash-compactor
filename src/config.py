@@ -2,11 +2,31 @@ from typing import Set, Tuple
 import psutil
 
 SKIP_EXTENSIONS: Set[str] = {
-    '.zip', '.rar', '.7z', '.gz', '.xz', '.bz2',
-    '.jpg', '.jpeg', '.png', '.gif', '.webp',
-    '.mp4', '.mkv', '.avi', '.mov',
-    '.mp3', '.aac', '.ogg', '.m4a',
-    '.opus', '.flac', '.wav', '.wma'
+    # Archives and compressed files (assuming they don't use "store" mode)
+    '.zip', '.rar', '.7z', '.gz', '.xz', '.bz2', '.tar',
+    '.iso', '.img', '.squashfs', '.appimage',
+    
+    # Images and graphics
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
+    '.heic', '.heif', '.avif', '.jxl', '.tiff',
+    
+    # Video formats
+    '.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v',
+    '.hevc', '.h264', '.h265', '.vp8', '.vp9',
+    
+    # Audio formats
+    '.mp3', '.aac', '.ogg', '.m4a', '.opus',
+    '.flac', '.wav', '.wma', '.ac3', '.dts',
+    
+    # Virtual machine disk images
+    '.vdi', '.vmdk', '.vhd', '.vhdx', '.qcow2',
+    '.qed', '.vpc', '.hdd', '.raw',
+    
+    # Machine learning models
+    '.gguf',
+    
+    # Modern Office formats (already ZIP-based)
+    '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.pdf'
 }
 
 MIN_COMPRESSIBLE_SIZE = 4 * 1024  # 4KB minimum
