@@ -78,7 +78,9 @@ To contribute to this project:
 ### Immediate Priorities (v0.2.x)
 - Bring back the simple weak CPU core count check (to disable LZX automatically if run on a potato)
 - Fix incorrect reporting of how much space was saved after compression
-- Improve weak hardware detection
+- Improve the CLI user experience by letting users select toggle debug and Xpress-only modes
+- Adding the prompt to press any key to close the window once it's done compressing instead of terminating right away
+- Improve weak hardware detection (must have at least 5 logical threads)
 - Replace `compact.exe` calls with direct Windows API calls:
   - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
   - Use `GetFileAttributes()` to check compression state
@@ -87,22 +89,31 @@ To contribute to this project:
 - Replace generic exception handling with specific error cases
 
 ### Short-term Goals (v0.3.0)
+- UI overhaul: 
+  - Create a progress bar (with .01% precision ) at the bottom of the terminal window, potentially tied to the amount of processed files relative to total files in compressed directory
+  - Use verbose output by default and make it less bulky, listing the relative path instead of the absolute path, etc.
+  - Put the silent output behind a feature flag (progress bar has to be enabled all the time)
+  - Close the terminal after finishing compression only after pressing "Q" once or "Esc" twice, to prevent the terminal window from closing right away, if the program is launched in the standalone terminal (which is the most common way)
+  - Count an estimate time to completion, potentially tied to the average number of processed files per second (counted for the past 10 seconds), and display both values near the progress bar
+  - Keep the performance in mind, making sure the overhauled UI with all this added complexity is being rendered on a separate processor thread, with other threads managing the compression
 - Implement batch compression for multiple files or directories:
   - Group files by target compression algorithm
   - Process groups in parallel using worker threads
   - Balance thread count based on CPU cores
+  - Make an exception for LZX compression, because it already uses multiple processor threads to compress files, as opposed to Xpress*K's single-threaded operation
 - Improve system directory exclusion (with configurable rules)
 - Implement Chromium cache directory detection to avoid compressing already compressed cache files, in order to:
   - Exclude `*\Cache\Cache_Data\` directory compression (of Chromium-based web browsers and Electron apps)
   - Exclude Telegram's `\tdata\user_data\cache` and `\tdata\user_data\media_cache` compression
   - Exclude Microsoft Teams' `\LocalCache\Microsoft\MSTeams\*` compression
   - Exclude other most popular web browsers' cache directories compression
+  - Make these exclusions dynamic, not hard-coded - some entropy analysis might be required
 - Implement checking the compression status of the poorly compressed files in parallel (to make use of other cores)
 - Log this in the "info" channel to notify the user (me) about such files
 - Add basic test suite for core functionality
-  - Implement a single-thread benchmark for checking if the CPU is fast enough to use LZX compression (not an Intel Atom with numerous, but weak cores)
+  - Implement a single-thread benchmark to check if the CPU is fast enough to use LZX compression (to check if the CPU is not an Intel Atom with its numerous, but weak cores)
   - Test compression detection accuracy
-  - Verify API calls work correctly
+  - Verify that API calls work correctly
   - Check error handling paths
 
 ### Long-term Goals (v0.x.x)
