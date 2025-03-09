@@ -117,6 +117,10 @@ To contribute to this project:
   - Check error handling paths
 
 ### Long-term Goals (v0.x.x)
+- Create a 1-click/unattended mode of operation
+  - Automatically discover large folders (replacing WizTree and having to manually scour through folders)
+  - Avoiding compressing specific folders, such as ones mentioned in short-term goals
+  - Make life easier for The Greatest Technicians That Have Ever Lived
 - Implement smart compression detection:
   - Use entropy analysis for compressibility estimation
   - Sample data chunks strategically
