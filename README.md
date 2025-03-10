@@ -1,18 +1,18 @@
 # Trash-Compactor
-A utility for intelligent file compression on Windows 10/11 systems using the built-in NTFS compression algorithms and Windows' built-in "compact.exe" utility. Unlike [CompactGUI](https://github.com/IridiumIO/CompactGUI) (another tool that is based on compact.exe and primarily designed for compressing Steam games), this utility automatically selects the optimal compression algorithm based on file size - this lets you squeeze the most out of the compression algorithms and get even smaller file sizes, all while avoiding unnecessary compression, keeping things DRY (also known as "Don't Repeat Yourself").
+  A utility for intelligent file compression on Windows 10/11 systems using the built-in NTFS compression algorithms and Windows' built-in "compact.exe" utility. Unlike [CompactGUI](https://github.com/IridiumIO/CompactGUI) (another tool that is based on compact.exe and primarily designed for compressing Steam games), this utility automatically selects the optimal compression algorithm based on file size - this lets you squeeze the most out of the compression algorithms and get even smaller file sizes, all while avoiding unnecessary compression, keeping things DRY (also known as "Don't Repeat Yourself").
 
-## Features
+  ## Features
 
-- Automated compression using Windows NTFS compression
-- Smart algorithm selection based on file size
-- Skips poorly-compressed file formats (zip, media files, etc.)
-- Skips already-compressed files (which compact.exe has already compressed)
-- Detailed compression statistics
+  - Automated compression using Windows NTFS compression
+  - Smart algorithm selection based on file size
+  - Skips poorly-compressed file formats (zip, media files, etc.)
+  - Skips already-compressed files (which compact.exe has already compressed)
+  - Detailed compression statistics
 
-## Requirements
+  ## Requirements
 
-- Windows 10/11
-- Administrator privileges
+  - Windows 10/11
+  - Administrator privileges
 
 ## Installation
 
@@ -77,7 +77,7 @@ To contribute to this project:
 
 ### Immediate Priorities (v0.2.x)
 - Display a warning message if the directory that is being compressed is on an HDD instead of an SSD, eMMC storage, or an SD card, because HDDs can suffer from fragmentation and this will drastically decrease hard drive performance
-  - Tell user to go buy an SSD and clone the hard drive or make a clean install of the system if 
+  - Tell user to go buy an SSD and clone the hard drive or make a clean install of the system
 - Replace `compact.exe` calls with direct Windows API calls:
   - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
   - Use `GetFileAttributes()` to check compression state
@@ -85,12 +85,11 @@ To contribute to this project:
 
 ### Short-term Goals (v0.3.0)
 - UI overhaul: 
-  - Create a progress bar (with .01% precision ) at the bottom of the terminal window, potentially tied to the amount of processed files relative to total files in compressed directory
-  - Use verbose output by default and make it less bulky, listing the relative path instead of the absolute path, etc.
+  - Create a progress bar (with .01% precision) at the bottom of the terminal window, tied to the amount of processed files relative to total files
   - Put the silent output behind a feature flag (progress bar has to be enabled all the time)
-  - Close the terminal after finishing compression only after pressing "Q" once or "Esc" twice, to prevent the terminal window from closing right away, if the program is launched in the standalone terminal (which is the most common way)
-  - Count an estimate time to completion, potentially tied to the average number of processed files per second (counted for the past 10 seconds), and display both values near the progress bar
-  - Keep the performance in mind, making sure the overhauled UI with all this added complexity is being rendered on a separate processor thread, with other threads managing the compression
+  - Close the terminal after finishing compression only after pressing "Q" once or "Esc" twice
+  - Count and display estimated time to completion based on average processing speed
+  - Keep the performance in mind by rendering UI updates on a separate thread
 - Implement batch compression for multiple files or directories:
   - Group files by target compression algorithm
   - Process groups in parallel using worker threads
@@ -106,7 +105,7 @@ To contribute to this project:
 - Implement checking the compression status of the poorly compressed files in parallel (to make use of other cores)
 - Log this in the "info" channel to notify the user (me) about such files
 - Add basic test suite for core functionality
-  - Implement a single-thread benchmark to check if the CPU is fast enough to use LZX compression (to check if the CPU is not an Intel Atom with its numerous, but weak cores)
+  - Implement a single-thread benchmark to check if the CPU is fast enough to use LZX compress (to check if the CPU is not an Intel Atom with its numerous, but weak cores)ion (to check if the CPU is not an Intel Atom with its numerous, but weak cores)
   - Test compression detection accuracy
   - Verify that API calls work correctly
   - Check error handling paths

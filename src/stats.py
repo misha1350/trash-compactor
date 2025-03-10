@@ -1,4 +1,82 @@
 import logging
+import sys
+import time
+import threading
+import os
+import re
+
+class Spinner:
+    """Simple spinner class for showing progress"""
+    def __init__(self):
+        self.spinner_chars = ['\\', '|', '/', '-']
+        self.current_char = 0
+        self.running = False
+        self.spinner_thread = None
+        self.message_prefix = " Compressing Files: "
+        self.message_suffix = ""
+        self.last_line_length = 0
+        
+    def format_path(self, full_path, base_dir):
+        """Format file path to show a condensed relative path"""
+        # Convert to relative path
+        try:
+            rel_path = os.path.relpath(full_path, base_dir)
+            
+            # Split path into parts
+            parts = rel_path.split(os.sep)
+            
+            # Handle different depths
+            if len(parts) <= 2:
+                # Near the surface, show full relative path
+                return "/".join(parts)
+            else:
+                # Deep path, show first folder, ellipses for middle folders, and filename
+                middle_dots = "/..." * min(3, len(parts) - 2)  # Up to 3 sets of ".../..."
+                return f"{parts[0]}{middle_dots}{parts[-1]}"
+                
+        except Exception:
+            # Fallback if path handling fails
+            return os.path.basename(full_path)
+    
+    def spin(self):
+        """Update the spinner character"""
+        while self.running:
+            # Clear the entire line with spaces and reset cursor to start of line
+            sys.stdout.write(f"\r{' ' * self.last_line_length}\r")
+            
+            # Write the updated spinner with the spinner character before the path
+            output = f"{self.message_prefix}{self.spinner_chars[self.current_char]} {self.message_suffix}"
+            sys.stdout.write(output)
+            sys.stdout.flush()
+            
+            # Store line length for future clearing
+            self.last_line_length = len(output)
+            
+            self.current_char = (self.current_char + 1) % len(self.spinner_chars)
+            time.sleep(0.1)
+    
+    def start(self, message_prefix=None, message_suffix=None):
+        """Start the spinner"""
+        if message_prefix:
+            self.message_prefix = message_prefix
+        if message_suffix is not None:  # Allow empty string
+            self.message_suffix = message_suffix
+        
+        self.running = True
+        sys.stdout.write("\r")
+        self.spinner_thread = threading.Thread(target=self.spin)
+        self.spinner_thread.daemon = True
+        self.spinner_thread.start()
+    
+    def stop(self):
+        """Stop the spinner"""
+        self.running = False
+        if self.spinner_thread:
+            self.spinner_thread.join()
+        # Clear the entire line with spaces
+        sys.stdout.write(f"\r{' ' * self.last_line_length}\r")
+        sys.stdout.flush()
+
 
 class CompressionStats:
     def __init__(self):
@@ -9,6 +87,16 @@ class CompressionStats:
         self.total_compressed_size = 0
         self.errors = []
         self.total_skipped_size = 0
+
+
+class LegacyCompressionStats:
+    """Stats for legacy compression branding mode"""
+    def __init__(self):
+        self.total_files = 0
+        self.branded_files = 0
+        self.still_unmarked = 0
+        self.errors = []
+
 
 def print_compression_summary(stats: CompressionStats):
     """Print compression statistics"""
