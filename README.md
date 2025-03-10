@@ -76,17 +76,12 @@ To contribute to this project:
 ## To-Do
 
 ### Immediate Priorities (v0.2.x)
-- Bring back the simple weak CPU core count check (to disable LZX automatically if run on a potato)
-- Fix incorrect reporting of how much space was saved after compression
-- Improve the CLI user experience by letting users select toggle debug and Xpress-only modes
-- Adding the prompt to press any key to close the window once it's done compressing instead of terminating right away
-- Improve weak hardware detection (must have at least 5 logical threads)
+- Display a warning message if the directory that is being compressed is on an HDD instead of an SSD, eMMC storage, or an SD card, because HDDs can suffer from fragmentation and this will drastically decrease hard drive performance
+  - Tell user to go buy an SSD and clone the hard drive or make a clean install of the system if 
 - Replace `compact.exe` calls with direct Windows API calls:
   - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
   - Use `GetFileAttributes()` to check compression state
   - Remove subprocess spawning overhead
-- Add process priority management based on CPU core count
-- Replace generic exception handling with specific error cases
 
 ### Short-term Goals (v0.3.0)
 - UI overhaul: 
@@ -117,7 +112,7 @@ To contribute to this project:
   - Check error handling paths
 
 ### Long-term Goals (v0.x.x)
-- Create a 1-click/unattended mode of operation
+- Create a 1-click/unattended mode of operation:
   - Automatically discover large folders (replacing WizTree and having to manually scour through folders)
   - Avoiding compressing specific folders, such as ones mentioned in short-term goals
   - Make life easier for The Greatest Technicians That Have Ever Lived
@@ -125,11 +120,20 @@ To contribute to this project:
   - Use entropy analysis for compressibility estimation
   - Sample data chunks strategically
   - Cache results per file type
-- Quality of Life features
+  - Add file type detection beyond extensions, i.e. based on file content
+    - Compress easily compressable files (based on the extension first), then decide what to do with potentially problematic files later
+- Quality of Life features:
   - More coloured output
   - Saving user configuration with an optional `.ini` file
+  - Add resume capability for interrupted operations
+  - Add option to generate detailed reports in various formats
+- Localization support depending on system language
 - Research advanced compression methods:
   - Evaluate alternative NTFS compression APIs, like [UPX](https://github.com/upx/upx)
   - Consider filesystem-agnostic approaches (moving compressed files in/out of the source drive unpacks them)
   - Benchmark different compression strategies
-  - Do something about it
+  - Research possibilities for custom compression algorithms
+  - Investigate integration with other Windows compression features
+- Security and Reliability:
+  - Implement proper error handling for network paths
+  - Add verification of filesystem compatibility

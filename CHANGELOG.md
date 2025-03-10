@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2025-03-10
+### Added
+- Improved CPU detection for LZX compression with minimum threshold requirements
+- New `-f` flag to force LZX compression on less capable CPUs
+- "Press any key to exit" prompt after compression completes
+- More specific error handling for better troubleshooting
+
+### Fixed
+- Incorrect reporting of space saved after compression
+- More robust file checking with improved error handling
+- Better detection of system limitations for compression
+
 ## [0.2.3] - 2024-12-04
 ### Added
 - More file formats that are poorly compressable
