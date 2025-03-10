@@ -4,34 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.6] - 2025-03-11
+## [0.2.5] - 2025-03-11
 ### Added
 - New `-b` flag for cleanup mode that only brands files as compressed using legacy method
 - Skip main compression when using `-b` flag to avoid redundant work
 - More thorough compression verification to prevent re-compression attempts
 - Improved compression state detection using legacy Windows APIs
 - Better handling of already compressed files to prevent unnecessary reprocessing
+- Non-verbose mode now shows a dynamic spinner during compression
+- Improved file path display in non-verbose mode:
+    - Shows relative paths instead of absolute paths
+    - Condenses deep paths with ellipses (e.g., "folder/.../subfolder/file.txt")
+    - Maintains full path visibility for files near the root
+- Better terminal output handling with proper line clearing
 
 ### Changed
 - Separated compression and branding into distinct operations
 - Improved status reporting for compression verification
 - Updated help text and pro tips to include new cleanup mode functionality
+- Non-verbose mode now provides better visual feedback during compression
+- Improved path formatting for better readability
 
 ### Fixed
 - Fixed issue where some compressed files were not properly marked in Windows
 - Resolved the persistent bug causing files to be recompressed unnecessarily
-
-### Added
-- Non-verbose mode now shows a dynamic spinner during compression
-- Improved file path display in non-verbose mode:
-  - Shows relative paths instead of absolute paths
-  - Condenses deep paths with ellipses (e.g., "folder/.../subfolder/file.txt")
-  - Maintains full path visibility for files near the root
-- Better terminal output handling with proper line clearing
-
-### Changed
-- Non-verbose mode now provides better visual feedback during compression
-- Improved path formatting for better readability
 
 ## [0.2.4] - 2025-03-10
 ### Added
