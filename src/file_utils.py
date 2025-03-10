@@ -45,7 +45,7 @@ def check_compression_with_compact(file_path: Path) -> bool:
         if result.returncode != 0:
             return False
         
-        # Check for "Compression: On" in the output
+        # Check for a specific substring in the output to determine compression status
         return "0 are not" in result.stdout
         
     except Exception as e:

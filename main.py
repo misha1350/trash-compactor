@@ -33,7 +33,7 @@ def setup_logging(verbose: bool):
     handler.setFormatter(CustomFormatter())
     
     root_logger = logging.getLogger()
-    root_logger.handlers = []  # Remove existing handlers
+    root_logger.handlers = []
     root_logger.addHandler(handler)
     root_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
 
@@ -59,6 +59,10 @@ def main():
     parser.add_argument("-b", "--brand-files", action="store_true", 
                         help="(Cleanup mode) Brand files as compressed using legacy method. Use this after normal compression to ensure proper marking.")
     args = parser.parse_args()
+
+    # Determine if we should use LZX based on flags and CPU capability
+    use_lzx = not args.no_lzx
+    force_lzx = args.force_lzx
     
     setup_logging(args.verbose)
     
@@ -69,7 +73,7 @@ def main():
         logging.error("This script requires administrator privileges")
         return
     
-    # Display tips if no command-line flags are set
+    # Tips are displayed if no command-line flags are set
     if not args.verbose and not any([arg.startswith('-') for arg in sys.argv[1:] if arg != sys.argv[0]]):
         print(Fore.YELLOW + "\nPro tips:" + Style.RESET_ALL)
         print(Fore.CYAN + "• Run with -v to see what's happening under the hood 🔧")
@@ -77,6 +81,30 @@ def main():
         print(Fore.CYAN + "• Run with -f to force LZX compression on less capable CPUs 🚀")
         print(Fore.CYAN + "• Run with -b to brand files using legacy method AFTER normal compression (cleanup mode) 🏷️")
         print(Fore.CYAN + "• Use -h to display the help message (boring stuff) 📖")
+
+    physical_cores, logical_cores = get_cpu_info()
+    cpu_capable_for_lzx = config.is_cpu_capable_for_lzx()
+    
+    # Decide whether to use LZX based on CPU capability and command line arguments
+    if use_lzx:
+        if cpu_capable_for_lzx or force_lzx:
+            config.COMPRESSION_ALGORITHMS['large'] = 'LZX'
+            if force_lzx and not cpu_capable_for_lzx:
+                logging.info(f"Forcing LZX compression despite CPU having only {physical_cores} cores and {logical_cores} threads")
+            else:
+                logging.info(f"Using LZX compression (CPU deemed capable - it has {physical_cores} cores and {logical_cores} threads)")
+        else:
+            use_lzx = False
+            print(Fore.YELLOW + f"\nNotice: Your CPU has {physical_cores} cores and {logical_cores} threads.")
+            print(f"LZX compression requires at least {config.MIN_PHYSICAL_CORES_FOR_LZX} cores and {config.MIN_LOGICAL_CORES_FOR_LZX} threads.")
+            print("LZX compression has been disabled for better system responsiveness.")
+            print("Use -f flag to force LZX if you're feeling adventurous.")
+    else:
+        if args.no_lzx:
+            print(Fore.YELLOW + "-x: LZX compression disabled via command line flag.")
+        else:
+            print(Fore.YELLOW + f"\nNotice: Your CPU has {physical_cores} cores and {logical_cores} threads.")
+            print("LZX compression has been disabled for better system responsiveness.")
 
     directory = args.directory
     if not directory:
@@ -110,32 +138,6 @@ def main():
             print("These files may be repeatedly processed in future runs.")
     else:
         # Normal compression mode
-        physical_cores, logical_cores = get_cpu_info()
-        cpu_capable_for_lzx = config.is_cpu_capable_for_lzx()
-        use_lzx = not args.no_lzx
-        force_lzx = args.force_lzx
-        
-        # Decide whether to use LZX based on CPU capability and command line arguments
-        if use_lzx:
-            if cpu_capable_for_lzx or force_lzx:
-                config.COMPRESSION_ALGORITHMS['large'] = 'LZX'
-                if force_lzx and not cpu_capable_for_lzx:
-                    logging.info(f"Forcing LZX compression despite CPU having only {physical_cores} cores and {logical_cores} threads")
-                else:
-                    logging.info(f"Using LZX compression (CPU deemed capable - it has {physical_cores} cores and {logical_cores} threads)")
-            else:
-                use_lzx = False
-                print(Fore.YELLOW + f"\nNotice: Your CPU has {physical_cores} cores and {logical_cores} threads.")
-                print(f"LZX compression requires at least {config.MIN_PHYSICAL_CORES_FOR_LZX} cores and {config.MIN_LOGICAL_CORES_FOR_LZX} threads.")
-                print("LZX compression has been disabled for better system responsiveness.")
-                print("Use -f flag to force LZX if you're feeling adventurous.")
-        else:
-            if args.no_lzx:
-                print(Fore.YELLOW + "-x: LZX compression disabled via command line flag.")
-            else:
-                print(Fore.YELLOW + f"\nNotice: Your CPU has {physical_cores} cores and {logical_cores} threads.")
-                print("LZX compression has been disabled for better system responsiveness.")
-        
         logging.info(f"Starting compression of directory: {directory}")
         stats = compress_directory(directory, verbose=args.verbose)
         print_compression_summary(stats)
