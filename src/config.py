@@ -38,11 +38,24 @@ SIZE_THRESHOLDS = [
     (1024 * 1024, 'large')     # 1MB
 ]
 
+# Minimum requirements for LZX compression
+MIN_LOGICAL_CORES_FOR_LZX = 5  # At least 5 logical cores (threads)
+MIN_PHYSICAL_CORES_FOR_LZX = 3  # At least 3 physical cores
+
 def get_cpu_info():
     """Get CPU physical cores and logical processors (threads)"""
     physical_cores = psutil.cpu_count(logical=False)
     logical_cores = psutil.cpu_count(logical=True)
     return physical_cores, logical_cores
+
+def is_cpu_capable_for_lzx():
+    """Check if CPU is powerful enough for LZX compression"""
+    physical_cores, logical_cores = get_cpu_info()
+    
+    # CPU should have at least MIN_LOGICAL_CORES_FOR_LZX logical cores and
+    # MIN_PHYSICAL_CORES_FOR_LZX physical cores to efficiently run LZX compression
+    return (physical_cores >= MIN_PHYSICAL_CORES_FOR_LZX and 
+            logical_cores >= MIN_LOGICAL_CORES_FOR_LZX)
 
 # Algorithm selection based on file size
 COMPRESSION_ALGORITHMS = {

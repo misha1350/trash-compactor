@@ -76,17 +76,10 @@ To contribute to this project:
 ## To-Do
 
 ### Immediate Priorities (v0.2.x)
-- Bring back the simple weak CPU core count check (to disable LZX automatically if run on a potato)
-- Fix incorrect reporting of how much space was saved after compression
-- Improve the CLI user experience by letting users select toggle debug and Xpress-only modes
-- Adding the prompt to press any key to close the window once it's done compressing instead of terminating right away
-- Improve weak hardware detection (must have at least 5 logical threads)
 - Replace `compact.exe` calls with direct Windows API calls:
   - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
   - Use `GetFileAttributes()` to check compression state
   - Remove subprocess spawning overhead
-- Add process priority management based on CPU core count
-- Replace generic exception handling with specific error cases
 
 ### Short-term Goals (v0.3.0)
 - UI overhaul: 
