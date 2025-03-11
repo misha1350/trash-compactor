@@ -52,8 +52,14 @@ def check_compression_with_compact(file_path: Path) -> bool:
         logging.error(f"Failed to check compression with compact: {e}")
         return False
 
-def is_file_compressed(file_path: Path) -> tuple[bool, int]:
-    """Check if a file is compressed and return its compressed size"""
+def is_file_compressed(file_path: Path, thorough_check: bool = False) -> tuple[bool, int]:
+    """
+    Check if a file is compressed and return its compressed size
+    
+    Args:
+        file_path: Path to the file to check
+        thorough_check: Whether to perform additional thorough checks (slower but more accurate)
+    """
     kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
     
     # Get actual file size
@@ -86,9 +92,8 @@ def is_file_compressed(file_path: Path) -> tuple[bool, int]:
     if is_compressed_by_size:
         return True, compressed_size
         
-    # Secondary check: Use compact command as a fallback when sizes are equal
-    # but file might still be compressed without size reduction
-    if compressed_size == actual_size:
+    # Secondary check: Only use compact command when thorough_check is enabled
+    if thorough_check and compressed_size == actual_size:
         is_compressed_by_attr = check_compression_with_compact(file_path)
         if is_compressed_by_attr:
             logging.debug(f"File {file_path} detected as compressed by compact command")
@@ -96,8 +101,14 @@ def is_file_compressed(file_path: Path) -> tuple[bool, int]:
             
     return False, compressed_size
 
-def should_compress_file(file_path: Path) -> tuple[bool, str, int]:
-    """Check if file is eligible for compression and return its compressed size"""
+def should_compress_file(file_path: Path, thorough_check: bool = False) -> tuple[bool, str, int]:
+    """
+    Check if file is eligible for compression and return its compressed size
+    
+    Args:
+        file_path: Path to the file to check
+        thorough_check: Whether to perform additional thorough checks (slower but more accurate)
+    """
     if file_path.suffix.lower() in SKIP_EXTENSIONS:
         return False, f"Skipped due to extension {file_path.suffix}", 0
 
@@ -106,7 +117,7 @@ def should_compress_file(file_path: Path) -> tuple[bool, str, int]:
         if file_size < MIN_COMPRESSIBLE_SIZE:
             return False, f"File too small ({file_size} bytes)", file_size
 
-        is_compressed, compressed_size = is_file_compressed(file_path)
+        is_compressed, compressed_size = is_file_compressed(file_path, thorough_check)
         if is_compressed:
             return False, "File is already compressed", compressed_size
 

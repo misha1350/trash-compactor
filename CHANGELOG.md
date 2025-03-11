@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2025-03-15
+### Added
+- New operation modes to handle different use cases:
+  - Normal mode (default): Fast compression with basic detection
+  - Thorough mode (-t flag): More accurate but slower compression checks for daily/scheduled tasks
+  - Branding mode (-b flag): For marking files as compressed after initial compression
+- Performance improvements in file compression detection:
+  - Avoiding slow "compact /a" checks in normal mode
+  - Optimized file detection logic to speed up initial compression runs
+- Better guidance on optimal usage patterns for different scenarios:
+  - One-time compression of new directories
+  - Regular scheduled compression tasks
+  - Post-compression branding for Windows compatibility
+- Improved command-line argument handling with mutually exclusive operation modes
+
+### Changed
+- Reduced unnecessary file checks during normal compression mode
+- Made thorough checking an explicit opt-in feature for scheduled tasks
+- Clarified help text and documentation for different operation modes
+- Updated guidance for optimal configuration based on use case
+
+### Fixed
+- Performance bottleneck during compression checks by making thorough checks optional
+- Potential reprocessing of already compressed files in daily operations
+
 ## [0.2.5] - 2025-03-11
 ### Added
 - New `-b` flag for cleanup mode that only brands files as compressed using legacy method
