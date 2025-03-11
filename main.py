@@ -48,16 +48,23 @@ def main():
  / /  | | | (_| \__ \ | | |_____/ /__| (_) | | | | | | |_) | (_| | (__| || (_) | |   
  \/   |_|  \__,_|___/_| |_|     \____/\___/|_| |_| |_| .__/ \__,_|\___|\__\___/|_|   
                                                      |_|                             """)
-    version = "0.2.5"  # Updated version number
+    version = "0.2.6"  # Updated version number
     build_date = "who cares"
     print(Fore.GREEN + f"Version: {version}    Build Date: {build_date}\n")
+    
     parser = argparse.ArgumentParser(description="Compress files using Windows NTFS compression")
     parser.add_argument("directory", nargs="?", help="Directory to compress")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug output")
     parser.add_argument("-x", "--no-lzx", action="store_true", help="Disable LZX compression for better system responsiveness")
     parser.add_argument("-f", "--force-lzx", action="store_true", help="Force LZX compression even on less capable CPUs")
-    parser.add_argument("-b", "--brand-files", action="store_true", 
-                        help="(Cleanup mode) Brand files as compressed using legacy method. Use this after normal compression to ensure proper marking.")
+    
+    # Create mutually exclusive group for operation modes
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument("-b", "--brand-files", action="store_true", 
+                      help="(Branding mode) Brand files as compressed using legacy method. Use after normal compression for proper marking.")
+    mode_group.add_argument("-t", "--thorough", action="store_true",
+                      help="(Thorough mode) Use slower but more accurate file checking. Use for daily/scheduled compression tasks.")
+    
     args = parser.parse_args()
 
     # Determine if we should use LZX based on flags and CPU capability
@@ -73,17 +80,31 @@ def main():
         logging.error("This script requires administrator privileges")
         return
     
+    # Show pro tips only if no command-line flags or only a path is specified
+    show_tips = not any([arg.startswith('-') for arg in sys.argv[1:] if arg != sys.argv[0]])
+    
     # Tips are displayed if no command-line flags are set
-    if not args.verbose and not any([arg.startswith('-') for arg in sys.argv[1:] if arg != sys.argv[0]]):
+    if show_tips:
         print(Fore.YELLOW + "\nPro tips:" + Style.RESET_ALL)
         print(Fore.CYAN + "• Run with -v to see what's happening under the hood 🔧")
         print(Fore.CYAN + "• Run with -x to disable LZX compression 🐌")
         print(Fore.CYAN + "• Run with -f to force LZX compression on less capable CPUs 🚀")
-        print(Fore.CYAN + "• Run with -b to brand files using legacy method AFTER normal compression (cleanup mode) 🏷️")
+        print(Fore.CYAN + "• Run with -t for thorough checking when using scheduled compression ⏰")
+        print(Fore.CYAN + "• Run with -b to brand files using legacy method (separate branding mode) 🏷️")
         print(Fore.CYAN + "• Use -h to display the help message (boring stuff) 📖")
 
     physical_cores, logical_cores = get_cpu_info()
     cpu_capable_for_lzx = config.is_cpu_capable_for_lzx()
+
+    # Operation mode info messages
+    if args.brand_files:
+        print(Fore.YELLOW + "\nRunning in branding mode:" + Style.RESET_ALL)
+        print(Fore.YELLOW + "This mode will help ensure files are properly marked as compressed in Windows." + Style.RESET_ALL)
+        print(Fore.YELLOW + "Use this after normal compression to prevent re-processing of files in future runs." + Style.RESET_ALL)    
+    elif args.thorough:
+        print(Fore.YELLOW + "\nRunning in thorough checking mode:" + Style.RESET_ALL)
+        print(Fore.YELLOW + "This mode performs more accurate but slower compression status checks." + Style.RESET_ALL)
+        print(Fore.YELLOW + "Ideal for scheduled/daily compression tasks on previously compressed directories." + Style.RESET_ALL)
     
     # Decide whether to use LZX based on CPU capability and command line arguments
     if use_lzx:
@@ -115,17 +136,17 @@ def main():
     if not os.path.exists(directory):
         logging.error("Directory does not exist!")
         return
-    
+
+    # TODO: Add a check for Windows system directories among the subdirectories, instead of having a simple check for the root directory
     if os.path.normpath(directory).lower().startswith(r"c:\windows"):
         logging.error("To compress Windows system files, please use 'compact.exe /compactos:always' instead")
         return
     
-    # If we're in branding/cleanup mode (-b), skip the main compression
+    # Handle different operation modes
     if args.brand_files:
-        print(Fore.CYAN + "\nStarting file branding process using legacy method..." + Style.RESET_ALL)
-        print(Fore.YELLOW + "This will help ensure files are properly marked as compressed in Windows." + Style.RESET_ALL)
-        print(Fore.YELLOW + "This mode is typically used after a normal compression run to prevent re-compression of files in future runs." + Style.RESET_ALL)
-        legacy_stats = compress_directory_legacy(directory)
+        print(Fore.CYAN + "\nStarting file branding process..." + Style.RESET_ALL)
+        # Use thorough checking for branding only if explicitly requested
+        legacy_stats = compress_directory_legacy(directory, thorough_check=args.thorough)
         
         # Print summary of legacy branding process
         print(Fore.CYAN + "\nFile Branding Summary:" + Style.RESET_ALL)
@@ -137,13 +158,15 @@ def main():
             print(Fore.YELLOW + f"Warning: {legacy_stats.still_unmarked} files are still not properly marked as compressed.")
             print("These files may be repeatedly processed in future runs.")
     else:
-        # Normal compression mode
+        # Normal or thorough compression mode
         logging.info(f"Starting compression of directory: {directory}")
-        stats = compress_directory(directory, verbose=args.verbose)
+        stats = compress_directory(directory, verbose=args.verbose, thorough_check=args.thorough)
         print_compression_summary(stats)
         
-        print(Fore.YELLOW + "\nTip: Run this tool again with the -b flag to properly brand all compressed files.")
-        print("This can help Windows recognize compressed files and prevent re-compression in daily use.")
+        if not args.thorough:
+            print(Fore.YELLOW + "\nPro tips for scheduled compression tasks:" + Style.RESET_ALL)
+            print("• Use the -t flag for thorough checking when running daily compression tasks")
+            print("• After initial compression, run with the -b flag to properly brand all compressed files")
     
     print("\nOperation completed.")
     

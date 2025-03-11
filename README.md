@@ -5,8 +5,9 @@
 
   - Automated compression using Windows NTFS compression
   - Smart algorithm selection based on file size
+  - Multiple operation modes for different use cases
   - Skips poorly-compressed file formats (zip, media files, etc.)
-  - Skips already-compressed files (which compact.exe has already compressed)
+  - Skips already-compressed files
   - Detailed compression statistics
 
   ## Requirements
@@ -64,6 +65,56 @@ Optional: you can compile the app yourself as I did, using PyInstaller:
     - Skip incompatible files
     - Apply optimal compression algorithms
     - Display compression statistics
+
+### Operation Modes
+
+Trash-Compactor offers three distinct operation modes to handle different scenarios:
+
+#### Normal Mode (Default)
+For first-time compression of directories with optimal performance.
+Most users can just compress once and forget about it.
+Be aware that temporarily disabling the anti-virus or whitelisting this program is going to greatly improve the compression speed.
+```powershell
+.\trash-compactor.exe C:\path\to\compress
+```
+
+#### Thorough Mode (-t)
+For daily or scheduled compression tasks on directories that have already been compressed. Uses more intensive checking to accurately identify compressed files and avoid reprocessing (because Windows doesn't have reliable and fast methods to check if some files have been compressed before).
+Be aware that this mode heavily uses the fastest CPU core in your system, so systems with bad cooling or hot Intel CPUs may run hot.
+```powershell
+.\trash-compactor.exe -t C:\path\to\compress
+```
+
+#### Branding Mode (-b)
+For ensuring proper marking of files as compressed in Windows. Run this after initial compression if you plan to do daily or scheduled compression tasks, either after the Thorough Mode or after that.
+```powershell
+.\trash-compactor.exe -b C:\path\to\compress
+```
+
+### Recommended Workflow for Scheduled Compression
+
+For optimal results when running compression tasks regularly (daily/weekly):
+
+1. **Initial compression**: Run in normal mode
+   ```powershell
+   .\trash-compactor.exe C:\path\to\compress
+   ```
+
+2. **Branding**: Run in branding mode to properly mark all files
+   ```powershell
+   .\trash-compactor.exe -b C:\path\to\compress
+   ```
+
+3. **For ongoing daily/scheduled tasks**: Use thorough mode aftwewards
+   ```powershell
+   .\trash-compactor.exe -t C:\path\to\compress
+   ```
+
+### Additional Options
+
+- `-v, --verbose`: Enable detailed output
+- `-x, --no-lzx`: Disable LZX compression for better system responsiveness
+- `-f, --force-lzx`: Force LZX compression even on less capable CPUs
 
 ## Development
 
