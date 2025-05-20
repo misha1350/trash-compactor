@@ -1,6 +1,7 @@
 import logging, os, argparse, sys
 from colorama import init, Fore, Style
 from src import compress_directory, print_compression_summary, get_cpu_info, config, compress_directory_legacy
+from src.file_utils import is_hard_drive
 
 def is_admin():
     """Check if script has admin privileges"""
@@ -81,7 +82,7 @@ def main():
         return
     
     # Show pro tips only if no command-line flags or only a path is specified
-    show_tips = not any([arg.startswith('-') for arg in sys.argv[1:] if arg != sys.argv[0]])
+    show_tips = not any([arg.startswith('-') for arg in sys.argv[1:]])
     
     # Tips are displayed if no command-line flags are set
     if show_tips:
@@ -141,6 +142,25 @@ def main():
     if os.path.normpath(directory).lower().startswith(r"c:\windows"):
         logging.error("To compress Windows system files, please use 'compact.exe /compactos:always' instead")
         return
+    
+    # Check if target directory is on a spinning hard disk (HDD)
+    if is_hard_drive(directory):
+        print(Fore.RED + "\n⚠️ WARNING: HARD DISK DRIVE DETECTED! ⚠️" + Style.RESET_ALL)
+        print(Fore.RED + "You are attempting to compress files on a traditional spinning hard drive.")
+        print("This can lead to file fragmentation and decreased performance. (solid state storage doesn't have this)" + Style.RESET_ALL)
+        print(Fore.YELLOW + "\nRecommendation:" + Style.RESET_ALL)
+        print("• Consider upgrading to an SSD for your system drive")
+        print("• If you must use an HDD, be aware that compression may reduce overall performance")
+        print("• Defragment your drive after compression completes")
+        
+        # Ask for confirmation before proceeding
+        print("\n" + Fore.YELLOW + "Do you want to proceed anyway? (y/n): " + Style.RESET_ALL, end="")
+        response = input().strip().lower()
+        if response != 'y' and response != 'yes':
+            print(Fore.CYAN + "Operation cancelled. Consider upgrading to an SSD for better performance." + Style.RESET_ALL)
+            return
+        
+        print(Fore.YELLOW + "\nProceeding with compression on HDD. This may impact system performance." + Style.RESET_ALL)
     
     # Handle different operation modes
     if args.brand_files:

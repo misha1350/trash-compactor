@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2025-05-20
+### Added
+- Hard Drive check, to discourage using the program with a hard drive so as to keep the performance high (more testing with a hard drive needs to be done to evaluate performance loss)
+- More extensions of poorly compressable files that are to be skipped
+
 ## [0.2.6] - 2025-03-15
 ### Added
 - New operation modes to handle different use cases:

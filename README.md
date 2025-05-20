@@ -127,7 +127,7 @@ To contribute to this project:
 ## To-Do
 
 ### Immediate Priorities (v0.2.x)
-- Display a warning message if the directory that is being compressed is on an HDD instead of an SSD, eMMC storage, or an SD card, because HDDs can suffer from fragmentation and this will drastically decrease hard drive performance
+- Display a warning message if the directory that is being compressed is on a spinning hard drive instead of an SSD, eMMC storage, or an SD card, because HDDs can suffer from fragmentation and compressing files and having them fragmented will drastically worsen the already bad hard drive performance in the OS
   - Tell user to go buy an SSD and clone the hard drive or make a clean install of the system
 - Replace `compact.exe` calls with direct Windows API calls:
   - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
