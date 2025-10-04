@@ -153,13 +153,13 @@ def _plan_compression(
 
 
 def _xp_worker_count() -> int:
-    physical, logical = get_cpu_info()
-    cores = physical or logical
-    if not cores:
+    _, logical = get_cpu_info()
+    threads = logical
+    if not threads:
         return 1
 
-    # Keep one core free so the shell and I/O threads stay responsive
-    return max(1, cores - 1)
+    # Keep one thread free so the shell and I/O threads stay responsive
+    return max(1, threads - 1)
 
 
 def _lzx_worker_count() -> int:
