@@ -127,12 +127,13 @@ To contribute to this project:
 ## To-Do
 
 ### Immediate Priorities (v0.2.x)
-- Display a warning message if the directory that is being compressed is on a spinning hard drive instead of an SSD, eMMC storage, or an SD card, because HDDs can suffer from fragmentation and compressing files and having them fragmented will drastically worsen the already bad hard drive performance in the OS
+- Properly display a warning message if the directory that is being compressed is on a spinning hard drive instead of an SSD, eMMC storage, or an SD card, because HDDs can suffer from fragmentation and compressing files and having them fragmented will drastically worsen the already bad hard drive performance in the OS
   - Tell user to go buy an SSD and clone the hard drive or make a clean install of the system
 - Replace `compact.exe` calls with direct Windows API calls:
   - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
   - Use `GetFileAttributes()` to check compression state
   - Remove subprocess spawning overhead
+- Fix the stats logic (correct resulting folder size, counting files in regular output)
 
 ### Short-term Goals (v0.3.0)
 - UI overhaul: 
@@ -141,11 +142,6 @@ To contribute to this project:
   - Close the terminal after finishing compression only after pressing "Q" once or "Esc" twice
   - Count and display estimated time to completion based on average processing speed
   - Keep the performance in mind by rendering UI updates on a separate thread
-- Implement batch compression for multiple files or directories:
-  - Group files by target compression algorithm
-  - Process groups in parallel using worker threads
-  - Balance thread count based on CPU cores
-  - Make an exception for LZX compression, because it already uses multiple processor threads to compress files, as opposed to Xpress*K's single-threaded operation
 - Improve system directory exclusion (with configurable rules)
 - Implement Chromium cache directory detection to avoid compressing already compressed cache files, in order to:
   - Exclude `*\Cache\Cache_Data\` directory compression (of Chromium-based web browsers and Electron apps)
