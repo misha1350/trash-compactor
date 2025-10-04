@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+
+## [0.3.0] - 2025-10-05
+### Added
+- XPRESS compression multi-threading (!!!)
+- Performance monitoring block that displays total time, per-stage timings, and throughput after each run
+
+### Changed
+- Reworked the compression pipeline to plan work up front, split XPRESS and LZX batches, and run them in dedicated thread pools for better throughput
+- Refined the non-verbose spinner to greatly improve performance show processed/total counters
+- Normalized configuration constants with typed collections so large files default to LZX when the CPU check allows it
+- Refactored the code to remove some AI-generated slop code
+
+### Fixed
+- Branding mode now re-validates each file after `compact` runs so stubborn files are counted under "still unmarked" instead of reported as successful
+
+## [0.2.7] - 2025-05-20
+### Added
+- Hard Drive check, to discourage using the program with a hard drive so as to keep the performance high (more testing with a hard drive needs to be done to evaluate performance loss)
+- More extensions of poorly compressable files that are to be skipped
+
 ## [0.2.6] - 2025-03-15
 ### Added
 - New operation modes to handle different use cases:
