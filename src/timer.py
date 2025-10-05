@@ -8,10 +8,11 @@ class TimingStats:
     total_time: float = 0.0
     file_scan_time: float = 0.0
     compression_time: float = 0.0
-    verification_time: float = 0.0
+    # Removed verification_time: float = 0.0
     total_files: int = 0
     files_compressed: int = 0
     files_skipped: int = 0
+
 
     @property
     def avg_time_per_file(self) -> float:
@@ -22,23 +23,31 @@ class TimingStats:
         return self.compression_time / self.files_compressed if self.files_compressed else 0.0
 
     @property
-    def files_per_second(self) -> float:
-        return self.total_files / self.total_time if self.total_time else 0.0
+    def scan_throughput(self) -> float:
+        return self.total_files / self.file_scan_time if self.file_scan_time else 0.0
+
+    @property
+    def work_throughput(self) -> float:
+        return self.files_compressed / self.work_duration if self.work_duration else 0.0
+
+    @property
+    def work_duration(self) -> float:
+        return self.total_time - self.file_scan_time if self.total_time > self.file_scan_time else 0.0
 
     def print_summary(self) -> None:
         logging.info("")
         logging.info("Performance summary")
         logging.info("  elapsed total : %.3fs", self.total_time)
         logging.info("  scan duration : %.3fs (%s)", self.file_scan_time, self._percent(self.file_scan_time))
-        logging.info("  work duration : %.3fs (%s)", self.compression_time, self._percent(self.compression_time))
-        logging.info("  verify time   : %.3fs (%s)", self.verification_time, self._percent(self.verification_time))
+        logging.info("  work duration : %.3fs (%s)", self.work_duration, self._percent(self.work_duration))
         logging.info("  files handled : %d", self.total_files)
         logging.info("    compressed  : %d", self.files_compressed)
         logging.info("    skipped     : %d", self.files_skipped)
         logging.info("  avg per file  : %.4fs", self.avg_time_per_file)
         if self.files_compressed:
             logging.info("  avg compress  : %.4fs", self.avg_compression_time)
-        logging.info("  throughput    : %.2f files/s", self.files_per_second)
+        logging.info("  scan throughput    : %.2f files/s", self.scan_throughput)
+        logging.info("  work throughput    : %.2f files/s", self.work_throughput)
 
     def _percent(self, span: float) -> str:
         return f"{(span / self.total_time) * 100:.1f}%" if self.total_time else "0.0%"
@@ -85,8 +94,7 @@ class PerformanceMonitor:
     def time_compression(self) -> "SectionTimer":
         return SectionTimer(self, 'compression_time')
 
-    def time_verification(self) -> "SectionTimer":
-        return SectionTimer(self, 'verification_time')
+    # Removed time_verification
 
     def increment_file_count(self) -> None:
         self.stats.total_files += 1

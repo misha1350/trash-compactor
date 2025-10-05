@@ -18,6 +18,7 @@ class Spinner:
         self._lock = threading.Lock()
         self.processed = 0
         self.total = 0
+        self._label = "Compressing files"
 
     def format_path(self, full_path: str, base_dir: str) -> str:
         try:
@@ -38,7 +39,11 @@ class Spinner:
         while self._running:
             with self._lock:
                 progress = f"({self.processed}/{self.total})" if self.total else ""
-                output = f"\r Compressing Files {progress}: {self._chars[self._index]} {self._message}"
+                output = f"\r {self._chars[self._index]} {self._label}"
+                if self._message:
+                    output += f" {self._message}"
+                if progress:
+                    output += f" {progress}"
                 output = output.ljust(self._last_line_length)
                 sys.stdout.write(output)
                 sys.stdout.flush()
@@ -52,17 +57,23 @@ class Spinner:
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
 
+    def set_label(self, label: str) -> None:
+        with self._lock:
+            self._label = label
+
     def update(self, processed: int, current_file: Optional[str] = None) -> None:
         with self._lock:
             self.processed = processed
-            if current_file:
+            if current_file is not None:
                 self._message = current_file
 
-    def stop(self) -> None:
+    def stop(self, final_message: Optional[str] = None) -> None:
         self._running = False
         if self._thread:
             self._thread.join(timeout=1.0)
         sys.stdout.write(f"\r{' ' * self._last_line_length}\r")
+        if final_message:
+            sys.stdout.write(final_message)
         sys.stdout.flush()
 
 
@@ -104,9 +115,9 @@ def print_compression_summary(stats: CompressionStats) -> None:
     logging.info("\nOriginal size: %.2f MB", total_original / (1024 * 1024))
 
     if total_original > 0:
-        space_saved = total_original - total_compressed
-        logging.info("Space saved: %.2f MB", space_saved / (1024 * 1024))
+        space_saved = max(0, total_original - total_compressed)
         ratio = (space_saved / total_original) * 100
+        logging.info("Space saved: %.2f MB", space_saved / (1024 * 1024))
         logging.info("Overall compression ratio: %.2f%%", ratio)
         logging.info("Size after compression: %.2f MB", total_compressed / (1024 * 1024))
 

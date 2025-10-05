@@ -2,9 +2,23 @@ import ctypes
 import logging
 import os
 import subprocess
+import sys
+import threading
+import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterator, Optional, Sequence
+
+try:
+    from colorama import Fore, Style  # type: ignore
+except ImportError:  # pragma: no cover - color output is optional
+    class _ColorFallback:
+        GREEN = ""
+        YELLOW = ""
+        RESET_ALL = ""
+
+    Fore = Style = _ColorFallback()  # type: ignore
 
 from .config import (
     COMPRESSION_ALGORITHMS,
@@ -15,6 +29,9 @@ from .config import (
 from .file_utils import get_size_category, is_file_compressed, should_compress_file
 from .stats import CompressionStats, LegacyCompressionStats, Spinner
 from .timer import PerformanceMonitor
+
+_BATCH_SIZE = 100
+_MAX_COMMAND_CHARS = 4000
 
 
 def _hidden_startupinfo() -> subprocess.STARTUPINFO:
@@ -83,28 +100,30 @@ def compress_directory(directory_path: str, verbose: bool = False, thorough_chec
     total_files = len(all_files)
     monitor.stats.total_files = total_files
 
-    spinner = None
+    spinner: Optional[Spinner] = None
     if not verbose:
         spinner = Spinner()
+        spinner.set_label("Scanning files...")
         spinner.start(total=total_files)
+        spinner.update(0, "")
 
-    plan = _plan_compression(all_files, stats, monitor, thorough_check)
+    plan = _plan_compression(all_files, stats, monitor, thorough_check, spinner, verbose)
     monitor.stats.files_skipped = stats.skipped_files
+
+    if spinner and not verbose:
+        final_skip_message = f"Skipped {stats.skipped_files}/{total_files} poorly compressible files"
+        spinner.stop(final_message=final_skip_message)
+        spinner = None
 
     if plan:
         _execute_plan(
             plan,
             stats,
             monitor,
-            spinner,
             verbose,
-            base_dir,
         )
 
     monitor.stats.files_compressed = stats.compressed_files
-
-    if spinner and not verbose:
-        spinner.stop()
 
     monitor.end_operation()
     return stats, monitor
@@ -122,10 +141,14 @@ def _plan_compression(
     stats: CompressionStats,
     monitor: PerformanceMonitor,
     thorough_check: bool,
+    spinner: Optional[Spinner],
+    verbose: bool,
 ) -> list[tuple[Path, int, str]]:
     candidates: list[tuple[Path, int, str]] = []
     with monitor.time_file_scan():
-        for file_path in files:
+        for index, file_path in enumerate(files, start=1):
+            if spinner and not verbose:
+                spinner.update(index)
             try:
                 should_compress, reason, current_size = should_compress_file(file_path, thorough_check)
                 file_size = file_path.stat().st_size
@@ -136,7 +159,9 @@ def _plan_compression(
                     candidates.append((file_path, file_size, algorithm))
                 else:
                     stats.skipped_files += 1
-                    stats.total_compressed_size += current_size
+                    resolved_size = current_size if current_size else file_size
+                    stats.total_compressed_size += resolved_size
+                    stats.total_skipped_size += file_size
                     if "already compressed" in reason.lower():
                         stats.already_compressed_files += 1
                     logging.debug("Skipping %s: %s", file_path, reason)
@@ -145,7 +170,9 @@ def _plan_compression(
                 stats.errors.append(f"Error processing {file_path}: {exc}")
                 stats.skipped_files += 1
                 try:
-                    stats.total_compressed_size += file_path.stat().st_size
+                    file_size_fallback = file_path.stat().st_size
+                    stats.total_compressed_size += file_size_fallback
+                    stats.total_skipped_size += file_size_fallback
                 except Exception:
                     pass
                 logging.error("Error processing %s: %s", file_path, exc)
@@ -163,8 +190,8 @@ def _xp_worker_count() -> int:
 
 
 def _lzx_worker_count() -> int:
-    physical, _ = get_cpu_info()
-    cores = physical
+    physical, logical = get_cpu_info()
+    cores = physical or logical
     if not cores or cores <= 4:
         return 1
 
@@ -175,69 +202,224 @@ def _execute_plan(
     plan: Sequence[tuple[Path, int, str]],
     stats: CompressionStats,
     monitor: PerformanceMonitor,
-    spinner: Optional[Spinner],
     verbose: bool,
-    base_dir: Path,
 ) -> None:
     total = len(plan)
     if not total:
         return
 
-    update_interval = max(1, total // 100)
-    base_dir_str = str(base_dir)
-    processed = 0
+    def _chunk(entries: Sequence[tuple[Path, int]], size: int) -> list[list[tuple[Path, int]]]:
+        batches: list[list[tuple[Path, int]]] = []
+        current: list[tuple[Path, int]] = []
+        current_length = 0
 
-    def _process(entries: Sequence[tuple[Path, int, str]], workers: int) -> None:
-        nonlocal processed
+        for path, file_size in entries:
+            path_length = len(str(path.resolve())) + 3  # keep CreateProcess payload under limits
+            if current and (len(current) >= size or current_length + path_length > _MAX_COMMAND_CHARS):
+                batches.append(current)
+                current = []
+                current_length = 0
+
+            current.append((path, file_size))
+            current_length += path_length
+
+        if current:
+            batches.append(current)
+
+        return batches
+
+    def _compact_batch(algo: str, paths: Sequence[Path]) -> subprocess.CompletedProcess:
+        quoted = " ".join(f'"{path.resolve()}"' for path in paths)
+        return _run_compact(f'compact /c /a /exe:{algo} {quoted}')
+
+    def _record_success(path: Path, compressed_size: int, algo: str, verified: bool) -> None:
+        stats.compressed_files += 1
+        stats.total_compressed_size += compressed_size
+        if verified:
+            logging.debug("Compressed %s using %s", path, algo)
+        else:
+            logging.debug(
+                "Compressed %s using %s (verification reported no size change; trusting compact return)",
+                path,
+                algo,
+            )
+
+    def _record_failure(path: Path, file_size: int, algo: str, reason: Optional[str] = None) -> None:
+        stats.skipped_files += 1
+        stats.total_compressed_size += file_size
+        stats.total_skipped_size += file_size
+        if reason:
+            logging.debug("Compression skipped for %s using %s: %s", path, algo, reason)
+        else:
+            logging.debug("Compression failed for %s using %s", path, algo)
+
+    def _finalize_success(path: Path, fallback_size: int, algo: str, context: str) -> None:
+        try:
+            verified, compressed_size = is_file_compressed(path, thorough_check=False)
+        except Exception as exc:  # pragma: no cover - defensive
+            stats.errors.append(f"Error verifying {path}: {exc}")
+            logging.error("Error verifying %s after %s compression: %s", path, context, exc)
+            _record_success(path, fallback_size, algo, verified=False)
+        else:
+            _record_success(path, compressed_size, algo, verified)
+
+    def _compress_single(path: Path, file_size: int, algo: str) -> None:
+        with monitor.time_compression():
+            success = compress_file(path, algo)
+
+        if not success:
+            _record_failure(path, file_size, algo)
+            return
+
+        _finalize_success(path, file_size, algo, context='fallback')
+
+    def _process_group(algo: str, entries: Sequence[tuple[Path, int]], workers: int, stage_idx: int) -> None:
         if not entries:
             return
 
+        progress = stage_progress[stage_idx]
+
+        def _advance(count: int) -> None:
+            if count <= 0:
+                return
+            if verbose:
+                progress['processed'] = min(progress['processed'] + count, progress['total'])
+                return
+            with render_lock:
+                progress['processed'] = min(progress['processed'] + count, progress['total'])
+
+        batches = _chunk(entries, _BATCH_SIZE)
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(_compress_single_file, path, size, algorithm): (path, size, algorithm)
-                for path, size, algorithm in entries
+                executor.submit(
+                    _compact_batch,
+                    algo,
+                    [path for path, _ in batch],
+                ): batch
+                for batch in batches
             }
 
             for future in as_completed(futures):
-                file_path, file_size, algorithm = futures[future]
-                processed += 1
-
-                if spinner and not verbose and processed % update_interval == 0:
-                    formatted_path = spinner.format_path(str(file_path), base_dir_str)
-                    spinner.update(processed, formatted_path)
+                batch = futures[future]
 
                 try:
                     with monitor.time_compression():
-                        success, compressed_size = future.result()
+                        result = future.result()
+                except Exception as exc:  # pragma: no cover - defensive
+                    logging.error(
+                        "Batch compression exception (%s files, algo=%s): %s. Retrying individually.",
+                        len(batch),
+                        algo,
+                        exc,
+                    )
+                    for path, file_size in batch:
+                        stats.errors.append(f"Batch exception for {path}: {exc}")
+                        _compress_single(path, file_size, algo)
+                        _advance(1)
+                    continue
 
-                    if success:
-                        stats.compressed_files += 1
-                        stats.total_compressed_size += compressed_size
-                        logging.debug("Compressed %s using %s", file_path, algorithm)
-                    else:
-                        stats.skipped_files += 1
-                        stats.total_compressed_size += file_size
-                        logging.debug("Compression failed for %s using %s", file_path, algorithm)
-                except Exception as exc:
-                    stats.errors.append(f"Error compressing {file_path}: {exc}")
-                    stats.skipped_files += 1
-                    stats.total_compressed_size += file_size
-                    logging.error("Error compressing %s: %s", file_path, exc)
+                if result.returncode != 0:
+                    logging.debug(
+                        "Batch compact returned %s for %s with %s files. Falling back to single-file attempts.",
+                        result.returncode,
+                        algo,
+                        len(batch),
+                    )
+                    for path, file_size in batch:
+                        _compress_single(path, file_size, algo)
+                        _advance(1)
+                    continue
 
-    xp_entries = [entry for entry in plan if entry[2] != 'LZX']
-    lzx_entries = [entry for entry in plan if entry[2] == 'LZX']
+                for path, file_size in batch:
+                    _finalize_success(path, file_size, algo, context='batch')
+                _advance(len(batch))
 
-    _process(xp_entries, _xp_worker_count())
-    _process(lzx_entries, _lzx_worker_count())
+    grouped: OrderedDict[str, list[tuple[Path, int]]] = OrderedDict()
+    for path, size, algorithm in plan:
+        grouped.setdefault(algorithm, []).append((path, size))
+
+    stage_items = list(grouped.items())
+    stage_states: list[str] = ['pending'] * len(stage_items)
+    stage_progress = [{'processed': 0, 'total': len(entries)} for _, entries in stage_items]
+    render_lock = threading.Lock()
+    rendered_lines = 0
+    render_initialized = False
+    stop_render = threading.Event()
+
+    def _render_stage_statuses() -> None:
+        nonlocal rendered_lines, render_initialized
+        if verbose or not stage_items:
+            return
+
+        spinner_chars = ['\\', '|', '/', '-']
+        spinner_idx = int(time.time() * 2) % len(spinner_chars)
+
+        lines: list[str] = []
+        for idx, (state, (algo, entries)) in enumerate(zip(stage_states, stage_items)):
+            total = stage_progress[idx]['total']
+            processed = min(stage_progress[idx]['processed'], total)
+            if state == 'done':
+                lines.append(Fore.GREEN + f"Compressing {total} files with {algo}... done" + Style.RESET_ALL)
+            elif state == 'running':
+                lines.append(
+                    Fore.YELLOW
+                    + f"{spinner_chars[spinner_idx]} Compressing {processed}/{total} files with {algo}..."
+                    + Style.RESET_ALL
+                )
+            else:
+                lines.append(f"Pending {total} files for {algo} compression.")
+
+        if not render_initialized:
+            sys.stdout.write("\n" * len(lines))
+            sys.stdout.flush()
+            render_initialized = True
+            rendered_lines = len(lines)
+
+        if rendered_lines:
+            sys.stdout.write("\033[F" * rendered_lines)
+        for line in lines:
+            sys.stdout.write("\r" + line + "\033[K\n")
+        sys.stdout.flush()
+        rendered_lines = len(lines)
+
+    def _render_loop() -> None:
+        while not stop_render.is_set():
+            with render_lock:
+                _render_stage_statuses()
+            time.sleep(0.2)
+        with render_lock:
+            _render_stage_statuses()
+
+    render_thread: Optional[threading.Thread] = None
+
+    try:
+        if not verbose and stage_items:
+            render_thread = threading.Thread(target=_render_loop, daemon=True)
+            render_thread.start()
+
+        for idx, (algorithm, entries) in enumerate(stage_items):
+            if not verbose:
+                with render_lock:
+                    stage_states[idx] = 'running'
+
+            if algorithm == 'LZX':
+                _process_group(algorithm, entries, _lzx_worker_count(), idx)
+            else:
+                _process_group(algorithm, entries, _xp_worker_count(), idx)
+
+            if not verbose:
+                with render_lock:
+                    stage_states[idx] = 'done'
+                    stage_progress[idx]['processed'] = stage_progress[idx]['total']
+    finally:
+        if render_thread:
+            stop_render.set()
+            render_thread.join()
+            with render_lock:
+                _render_stage_statuses()
+            sys.stdout.flush()
 
     monitor.stats.files_skipped = stats.skipped_files
-
-
-def _compress_single_file(file_path: Path, file_size: int, algorithm: str) -> tuple[bool, int]:
-    if compress_file(file_path, algorithm):
-        _, compressed_size = is_file_compressed(file_path, thorough_check=False)
-        return True, compressed_size
-    return False, file_size
 
 
 def compress_directory_legacy(directory_path: str, thorough_check: bool = False) -> LegacyCompressionStats:
