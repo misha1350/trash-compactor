@@ -28,10 +28,9 @@ SKIP_EXTENSIONS: Final[Set[str]] = _flatten((
 
 MIN_COMPRESSIBLE_SIZE: Final[int] = 8 * 1024  # 8KB minimum
 SIZE_THRESHOLDS: Final[Tuple[Tuple[int, str], ...]] = (
-    (8 * 1024, 'tiny'),
-    (64 * 1024, 'small'),
-    (256 * 1024, 'medium'),
-    (1024 * 1024, 'large'),
+    (64 * 1024, 'tiny'),
+    (256 * 1024, 'small'),
+    (1024 * 1024, 'medium'),
 )
 
 MIN_LOGICAL_CORES_FOR_LZX: Final[int] = 5
