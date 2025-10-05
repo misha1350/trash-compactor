@@ -1,8 +1,7 @@
 import argparse
 import logging
-import os
 import sys
-from typing import Iterable, Optional
+from typing import Iterable
 
 from colorama import Fore, Style, init
 
@@ -13,18 +12,11 @@ from src import (
     get_cpu_info,
     print_compression_summary,
 )
-from src.file_utils import is_hard_drive
+from src.console import display_banner, prompt_exit
+from src.launch import acquire_directory, interactive_configure
+from src.runtime import confirm_hdd_usage, configure_lzx, is_admin, is_windows_system_path
 
-BANNER = r"""
- _____               _             ___                                 _             
-/__   \_ __ __ _ ___| |__         / __\___  _ __ ___  _ __   __ _  ___| |_ ___  _ __ 
-  / /\/ '__/ _` / __| '_ \ _____ / /  / _ \| '_ ` _ \| '_ \ / _` |/ __| __/ _ \| '__|
- / /  | | | (_| \__ \ | | |_____/ /__| (_) | | | | | | |_) | (_| | (__| || (_) | |   
- \/   |_|  \__,_|___/_| |_|     \____/\___/|_| |_| |_| .__/ \__,_|\___|\__\___/|_|   
-                                                     |_|                             
-"""
-
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 BUILD_DATE = "who cares"
 
 PRO_TIPS: Iterable[str] = (
@@ -40,19 +32,6 @@ SCHEDULE_TIPS: Iterable[str] = (
     "• Use the -t flag for thorough checking when running daily compression tasks",
     "• After initial compression, run with the -b flag to properly brand all compressed files",
 )
-
-
-def is_admin() -> bool:
-    try:
-        return os.getuid() == 0
-    except AttributeError:
-        import ctypes
-
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-
-
-def sanitize_path(path: str) -> str:
-    return os.path.normpath(path.strip(" '\""))
 
 
 def setup_logging(verbose: bool) -> None:
@@ -110,13 +89,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def display_banner() -> None:
-    print(Fore.CYAN + Style.BRIGHT + BANNER)
-    print(Fore.GREEN + f"Version: {VERSION}    Build Date: {BUILD_DATE}\n")
-
-
-def should_show_tips() -> bool:
-    return not any(arg.startswith('-') for arg in sys.argv[1:])
+def should_show_tips(args: argparse.Namespace) -> bool:
+    return not (
+        args.verbose
+        or args.no_lzx
+        or args.force_lzx
+        or args.brand_files
+        or args.thorough
+    )
 
 
 def display_tips(lines: Iterable[str]) -> None:
@@ -134,70 +114,6 @@ def announce_mode(args: argparse.Namespace) -> None:
         print(Fore.YELLOW + "\nRunning in thorough checking mode:" + Style.RESET_ALL)
         print(Fore.YELLOW + "This mode performs more accurate but slower compression status checks." + Style.RESET_ALL)
         print(Fore.YELLOW + "Ideal for scheduled/daily compression tasks on previously compressed directories." + Style.RESET_ALL)
-
-
-def configure_lzx(choice_enabled: bool, force_lzx: bool, cpu_capable: bool, physical: int, logical: int) -> bool:
-    if not choice_enabled:
-        if force_lzx:
-            logging.info("Ignoring -f because -x disables LZX explicitly")
-        print(Fore.YELLOW + "-x: LZX compression disabled via command line flag.")
-        config.COMPRESSION_ALGORITHMS['large'] = 'XPRESS16K'
-        return False
-
-    if cpu_capable or force_lzx:
-        config.COMPRESSION_ALGORITHMS['large'] = 'LZX'
-        if force_lzx and not cpu_capable:
-            logging.info(
-                "Forcing LZX compression despite CPU having only %s cores and %s threads",
-                physical,
-                logical,
-            )
-        else:
-            logging.info(
-                "Using LZX compression (CPU deemed capable - it has %s cores and %s threads)",
-                physical,
-                logical,
-            )
-        return True
-
-    config.COMPRESSION_ALGORITHMS['large'] = 'XPRESS16K'
-    print(Fore.YELLOW + f"\nNotice: Your CPU has {physical} cores and {logical} threads.")
-    print(f"LZX compression requires at least {config.MIN_PHYSICAL_CORES_FOR_LZX} cores and {config.MIN_LOGICAL_CORES_FOR_LZX} threads.")
-    print("LZX compression has been disabled for better system responsiveness.")
-    print("Use -f flag to force LZX if you're feeling adventurous.")
-    return False
-
-
-def resolve_directory(argument: Optional[str]) -> str:
-    path = sanitize_path(argument or input("Enter directory path to compress: "))
-    return path
-
-
-def is_windows_system_path(directory: str) -> bool:
-    return os.path.normpath(directory).lower().startswith(r"c:\windows")
-
-
-def confirm_hdd_usage(directory: str) -> bool:
-    if not is_hard_drive(directory):
-        return True
-
-    # print(Fore.RED + "\n⚠️ WARNING: HARD DISK DRIVE DETECTED! ⚠️" + Style.RESET_ALL)
-    # print(Fore.RED + "You are attempting to compress files on a traditional spinning hard drive.")
-    print(Fore.YELLOW + "You may be attempting to compress files on a traditional spinning hard drive. (But the crude logic may be not working properly)")
-    print("If it truly is the case, this can lead to file fragmentation and decreased performance. (solid state storage doesn't have this)" + Style.RESET_ALL)
-    print(Fore.YELLOW + "\nRecommendation:" + Style.RESET_ALL)
-    print("• Consider upgrading to an SSD for your system drive")
-    print("• If you must use an HDD, be aware that compression may reduce overall performance")
-    print("• Defragment your drive after compression completes")
-
-    print("\n" + Fore.YELLOW + "Do you want to proceed anyway? (y/n): " + Style.RESET_ALL, end="")
-    response = input().strip().lower()
-    if response not in {"y", "yes"}:
-        print(Fore.CYAN + "Operation cancelled." + Style.RESET_ALL)
-        return False
-
-    print(Fore.YELLOW + "\nProceeding with compression on HDD. This may impact system performance." + Style.RESET_ALL)
-    return True
 
 
 def run_branding(directory: str, thorough: bool) -> None:
@@ -221,27 +137,27 @@ def run_compression(directory: str, verbose: bool, thorough: bool) -> None:
     print_compression_summary(stats)
     monitor.print_summary()
 
-    if not thorough:
-        print(Fore.YELLOW + "\nPro tips for scheduled compression tasks:" + Style.RESET_ALL)
-        for tip in SCHEDULE_TIPS:
-            print(tip)
-
-
-def prompt_exit() -> None:
-    try:
-        print(Fore.YELLOW + "\nPress any key to exit..." + Style.RESET_ALL)
-        import msvcrt
-
-        msvcrt.getch()
-    except ImportError:
-        input("\nPress Enter to exit...")
+    # if not thorough:
+    #     print(Fore.YELLOW + "\nPro tips for scheduled compression tasks:" + Style.RESET_ALL)
+    #     for tip in SCHEDULE_TIPS:
+    #         print(tip)
 
 
 def main() -> None:
     init(autoreset=True)
-    display_banner()
+    display_banner(VERSION, BUILD_DATE)
 
     args = build_parser().parse_args()
+
+    if args.no_lzx and args.force_lzx:
+        print(Fore.RED + "Error: Cannot disable and force LZX compression at the same time." + Style.RESET_ALL)
+        sys.exit(1)
+
+    interactive_launch = len(sys.argv) == 1
+
+    if interactive_launch:
+        args = interactive_configure(args)
+
     setup_logging(args.verbose)
 
     if args.verbose:
@@ -249,10 +165,11 @@ def main() -> None:
 
     if not is_admin():
         logging.error("This script requires administrator privileges")
+        prompt_exit()
         return
 
-    if should_show_tips():
-        display_tips(PRO_TIPS)
+    # if not should_show_tips(args):
+    #     display_tips(PRO_TIPS)
 
     physical_cores, logical_cores = get_cpu_info()
     announce_mode(args)
@@ -265,17 +182,17 @@ def main() -> None:
         logical=logical_cores,
     )
 
-    directory = resolve_directory(args.directory)
-    if not os.path.exists(directory):
-        logging.error("Directory does not exist!")
-        return
+    directory, args = acquire_directory(args, interactive_launch)
+    args.directory = directory
 
-    # TODO: extend this guard to check nested Windows system directories, not just the root.
+    # TODO: extend this guard to check nested Windows system directories, not just the root
     if is_windows_system_path(directory):
         logging.error("To compress Windows system files, please use 'compact.exe /compactos:always' instead")
+        prompt_exit()
         return
 
     if not confirm_hdd_usage(directory):
+        prompt_exit()
         return
 
     if args.brand_files:
