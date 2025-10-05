@@ -80,7 +80,6 @@ Be aware that temporarily disabling the anti-virus or whitelisting this program 
 
 #### Thorough Mode (-t)
 For daily or scheduled compression tasks on directories that have already been compressed. Uses more intensive checking to accurately identify compressed files and avoid reprocessing (because Windows doesn't have reliable and fast methods to check if some files have been compressed before).
-Be aware that this mode heavily uses the fastest CPU core in your system, so systems with bad cooling or hot Intel CPUs may run hot.
 ```powershell
 .\trash-compactor.exe -t C:\path\to\compress
 ```
@@ -90,6 +89,10 @@ For ensuring proper marking of files as compressed in Windows. Run this after in
 ```powershell
 .\trash-compactor.exe -b C:\path\to\compress
 ```
+
+#### Disabling (-x) or Forcing (-f) LZX Compression
+LZX compression is turned **on** for large files by default.
+LZX compression is resource-intensive and may impact performance a bit more, though it does result in better compression of both compressible binaries and the files that XPRESS16K doesn't compress well. But if you have a computer that was build or made before AD 2021, or if battery life is absolutely critical for you (a big problem on Intel Coffee Lake laptops), you may want to disable it the older your computer is.
 
 ### Recommended Workflow for Scheduled Compression
 
@@ -126,22 +129,7 @@ To contribute to this project:
 
 ## To-Do
 
-### Immediate Priorities (v0.2.x)
-- Properly display a warning message if the directory that is being compressed is on a spinning hard drive instead of an SSD, eMMC storage, or an SD card, because HDDs can suffer from fragmentation and compressing files and having them fragmented will drastically worsen the already bad hard drive performance in the OS
-  - Tell user to go buy an SSD and clone the hard drive or make a clean install of the system
-- Replace `compact.exe` calls with direct Windows API calls:
-  - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
-  - Use `GetFileAttributes()` to check compression state
-  - Remove subprocess spawning overhead
-- Fix the stats logic (correct resulting folder size, counting files in regular output)
-
-### Short-term Goals (v0.3.0)
-- UI overhaul: 
-  - Create a progress bar (with .01% precision) at the bottom of the terminal window, tied to the amount of processed files relative to total files
-  - Put the silent output behind a feature flag (progress bar has to be enabled all the time)
-  - Close the terminal after finishing compression only after pressing "Q" once or "Esc" twice
-  - Count and display estimated time to completion based on average processing speed
-  - Keep the performance in mind by rendering UI updates on a separate thread
+### Short-term Goals (v0.4.0)
 - Improve system directory exclusion (with configurable rules)
 - Implement Chromium cache directory detection to avoid compressing already compressed cache files, in order to:
   - Exclude `*\Cache\Cache_Data\` directory compression (of Chromium-based web browsers and Electron apps)
@@ -149,8 +137,7 @@ To contribute to this project:
   - Exclude Microsoft Teams' `\LocalCache\Microsoft\MSTeams\*` compression
   - Exclude other most popular web browsers' cache directories compression
   - Make these exclusions dynamic, not hard-coded - some entropy analysis might be required
-- Implement checking the compression status of the poorly compressed files in parallel (to make use of other cores)
-- Log this in the "info" channel to notify the user (me) about such files
+- Notify user if specific files have been compressed poorly
 - Add basic test suite for core functionality
   - Implement a single-thread benchmark to check if the CPU is fast enough to use LZX compress (to check if the CPU is not an Intel Atom with its numerous, but weak cores)ion (to check if the CPU is not an Intel Atom with its numerous, but weak cores)
   - Test compression detection accuracy
@@ -168,18 +155,16 @@ To contribute to this project:
   - Cache results per file type
   - Add file type detection beyond extensions, i.e. based on file content
     - Compress easily compressable files (based on the extension first), then decide what to do with potentially problematic files later
-- Quality of Life features:
-  - More coloured output
-  - Saving user configuration with an optional `.ini` file
-  - Add resume capability for interrupted operations
-  - Add option to generate detailed reports in various formats
-- Localization support depending on system language
 - Research advanced compression methods:
   - Evaluate alternative NTFS compression APIs, like [UPX](https://github.com/upx/upx)
   - Consider filesystem-agnostic approaches (moving compressed files in/out of the source drive unpacks them)
   - Benchmark different compression strategies
   - Research possibilities for custom compression algorithms
   - Investigate integration with other Windows compression features
+- Quality of Life features:
+  - Saving user configuration with an optional `.ini` file
+  - Add resume capability for interrupted operations
+- Localization support depending on system language
 - Security and Reliability:
   - Implement proper error handling for network paths
   - Add verification of filesystem compatibility
