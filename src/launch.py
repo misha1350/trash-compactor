@@ -14,6 +14,7 @@ FLAG_METADATA: dict[str, tuple[str, str]] = {
     'force_lzx': ('-f', 'Force LZX compression'),
     'thorough': ('-t', 'Thorough checking mode'),
     'brand_files': ('-b', 'Branding mode'),
+    'single_worker': ('-s', 'Throttle for HDDs'),
 }
 
 
@@ -25,6 +26,7 @@ class LaunchState:
     force_lzx: bool = False
     thorough: bool = False
     brand_files: bool = False
+    single_worker: bool = False
 
     def toggle(self, key: str) -> None:
         # Mutually exclusive switches get untangled here so the prompt never lies
@@ -66,7 +68,9 @@ def _apply_flag_string(raw: str, state: LaunchState) -> None:
         'force-lzx': 'force_lzx',
         'thorough': 'thorough',
         'brand-files': 'brand_files',
+        'single-worker': 'single_worker',
     }
+    short_map['s'] = 'single_worker'
 
     for token in tokens:
         if token.startswith('--'):
@@ -125,6 +129,7 @@ def interactive_configure(args: Namespace) -> Namespace:
         force_lzx=args.force_lzx,
         thorough=args.thorough,
         brand_files=args.brand_files,
+        single_worker=getattr(args, 'single_worker', False),
     )
 
     print(Fore.YELLOW + "\nInteractive launch detected. Configure your run before starting." + Style.RESET_ALL)
@@ -185,6 +190,7 @@ def interactive_configure(args: Namespace) -> Namespace:
     args.force_lzx = state.force_lzx
     args.thorough = state.thorough
     args.brand_files = state.brand_files
+    args.single_worker = state.single_worker
     return args
 
 

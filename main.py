@@ -11,12 +11,13 @@ from src import (
     config,
     get_cpu_info,
     print_compression_summary,
+    set_worker_cap,
 )
 from src.console import display_banner, prompt_exit
 from src.launch import acquire_directory, interactive_configure
 from src.runtime import confirm_hdd_usage, configure_lzx, is_admin, is_windows_system_path
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 BUILD_DATE = "who cares"
 
 PRO_TIPS: Iterable[str] = (
@@ -25,6 +26,7 @@ PRO_TIPS: Iterable[str] = (
     "• Run with -f to force LZX compression on less capable CPUs 🚀",
     "• Run with -t for thorough checking when using scheduled compression ⏰",
     "• Run with -b to brand files using legacy method (separate branding mode) 🏷️",
+    "• Run with -s if you intend to compress files on an HDD instead of an SSD 🛑",
     "• Use -h to display the help message (boring stuff) 📖",
 )
 
@@ -72,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Force LZX compression even on less capable CPUs",
     )
+    parser.add_argument(
+        "-s",
+        "--single-worker",
+        action="store_true",
+        help="Throttle compression to a single worker to reduce disk fragmentation risk",
+    )
 
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -96,6 +104,7 @@ def should_show_tips(args: argparse.Namespace) -> bool:
         or args.force_lzx
         or args.brand_files
         or args.thorough
+        or getattr(args, "single_worker", False)
     )
 
 
@@ -114,6 +123,8 @@ def announce_mode(args: argparse.Namespace) -> None:
         print(Fore.YELLOW + "\nRunning in thorough checking mode:" + Style.RESET_ALL)
         print(Fore.YELLOW + "This mode performs more accurate but slower compression status checks." + Style.RESET_ALL)
         print(Fore.YELLOW + "Ideal for scheduled/daily compression tasks on previously compressed directories." + Style.RESET_ALL)
+    if getattr(args, "single_worker", False):
+        print(Fore.YELLOW + "Single-worker mode enabled: compression batches will run sequentially." + Style.RESET_ALL)
 
 
 def run_branding(directory: str, thorough: bool) -> None:
@@ -163,6 +174,8 @@ def main() -> None:
     if args.verbose:
         print(Fore.BLUE + "-v: Verbose output enabled" + Style.RESET_ALL)
 
+    set_worker_cap(1 if args.single_worker else None)
+
     if not is_admin():
         logging.error("This script requires administrator privileges")
         prompt_exit()
@@ -191,7 +204,7 @@ def main() -> None:
         prompt_exit()
         return
 
-    if not confirm_hdd_usage(directory):
+    if not confirm_hdd_usage(directory, force_serial=args.single_worker):
         prompt_exit()
         return
 
