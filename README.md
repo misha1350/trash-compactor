@@ -116,41 +116,23 @@ To contribute to this project:
 
 ## To-Do
 
-### Immediate Priorities (v0.2.x)
-- Replace `compact.exe` calls with direct Windows API calls:
-  - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
-  - Use `GetFileAttributes()` to check compression state
-  - Remove subprocess spawning overhead
-- Fix the stats logic (correct resulting folder size, counting files in regular output)
-
-### Short-term Goals (v0.3.0)
-- UI overhaul: 
-  - Create a progress bar (with .01% precision) at the bottom of the terminal window, tied to the amount of processed files relative to total files
-  - Put the silent output behind a feature flag (progress bar has to be enabled all the time)
-  - Close the terminal after finishing compression only after pressing "Q" once or "Esc" twice
-  - Count and display estimated time to completion based on average processing speed
-  - Keep the performance in mind by rendering UI updates on a separate thread
-- Improve system directory exclusion (with configurable rules)
-- Implement Chromium cache directory detection to avoid compressing already compressed cache files, in order to:
-  - Exclude `*\Cache\Cache_Data\` directory compression (of Chromium-based web browsers and Electron apps)
-  - Exclude Telegram's `\tdata\user_data\cache` and `\tdata\user_data\media_cache` compression
-  - Exclude Microsoft Teams' `\LocalCache\Microsoft\MSTeams\*` compression
-  - Exclude other most popular web browsers' cache directories compression
-  - Make these exclusions dynamic, not hard-coded - some entropy analysis might be required
-- Implement checking the compression status of the poorly compressed files in parallel (to make use of other cores)
-- Log this in the "info" channel to notify the user (me) about such files
+### Short-term Goals
+- Land a default exclusion map for Windows/system directories, emit skip reasons, and surface toggles for future overrides
+- Persist user overrides and low-yield directory notes to a lightweight JSON/INI profile so unattended runs inherit past decisions
+- Teach the scanner to tag well-known cache directories (Chromium/Electron/Telegram/Teams, etc.) via fast path-pattern heuristics before resorting to heavier analysis
+- Record poorly compressible hits in the info log to build a reusable "do not touch" ledger during normal runs
 - Add basic test suite for core functionality
-  - Implement a single-thread benchmark to check if the CPU is fast enough to use LZX compress (to check if the CPU is not an Intel Atom with its numerous, but weak cores)ion (to check if the CPU is not an Intel Atom with its numerous, but weak cores)
+  - Implement a single-thread benchmark to check if the CPU is fast enough to use LZX (to check if the CPU is not an Intel Atom with numerous, but weak cores)
   - Test compression detection accuracy
   - Verify that API calls work correctly
   - Check error handling paths
 
-### Long-term Goals (v0.x.x)
-- Create a 1-click/unattended mode of operation:
+### Long-term Goals
+- Create a 1-click/unattended mode of operation built on the recorded skip map:
   - Automatically discover large folders (replacing WizTree and having to manually scour through folders)
-  - Avoiding compressing specific folders, such as ones mentioned in short-term goals
+  - Avoid compressing specific folders, such as ones mentioned in short-term goals
   - Make life easier for The Greatest Technicians That Have Ever Lived
-- Implement smart compression detection:
+- Implement smart compression detection that can make decisions without touching the filesystem twice:
   - Use entropy analysis for compressibility estimation
   - Sample data chunks strategically
   - Cache results per file type

@@ -6,7 +6,13 @@ from colorama import Fore, Style
 
 from . import config
 from .console import EscapeExit, announce_cancelled, read_user_input
-from .file_utils import DRIVE_FIXED, DRIVE_REMOTE, get_volume_details
+from .file_utils import (
+    DRIVE_FIXED,
+    DRIVE_REMOTE,
+    get_protection_reason,
+    get_volume_details,
+    is_protected_path,
+)
 from .compression import set_worker_cap
 
 
@@ -24,7 +30,11 @@ def is_admin() -> bool:
 
 
 def is_windows_system_path(directory: str) -> bool:
-    return os.path.normpath(directory).lower().startswith(r"c:\windows")
+    return is_protected_path(directory)
+
+
+def describe_protected_path(directory: str) -> Optional[str]:
+    return get_protection_reason(directory)
 
 
 def configure_lzx(choice_enabled: bool, force_lzx: bool, cpu_capable: bool, physical: int, logical: int) -> bool:

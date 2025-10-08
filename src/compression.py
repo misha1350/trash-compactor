@@ -26,7 +26,7 @@ from .config import (
     SKIP_EXTENSIONS,
     get_cpu_info,
 )
-from .file_utils import get_size_category, is_file_compressed, should_compress_file
+from .file_utils import get_size_category, is_file_compressed, should_compress_file, should_skip_directory
 from .stats import CompressionStats, LegacyCompressionStats, Spinner
 from .timer import PerformanceMonitor
 
@@ -145,8 +145,19 @@ def compress_directory(directory_path: str, verbose: bool = False, thorough_chec
 
 
 def _iter_files(root: Path) -> Iterator[Path]:
-    for current_root, _, files in os.walk(root):
+    for current_root, dirnames, files in os.walk(root):
         current_base = Path(current_root)
+
+        keep_dirs: list[str] = []
+        for directory in dirnames:
+            candidate = current_base / directory
+            skip, reason = should_skip_directory(candidate)
+            if skip:
+                logging.debug("Skipping directory %s: %s", candidate, reason)
+                continue
+            keep_dirs.append(directory)
+        dirnames[:] = keep_dirs
+
         for name in files:
             yield current_base / name
 

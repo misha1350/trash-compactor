@@ -15,7 +15,7 @@ from src import (
 )
 from src.console import display_banner, prompt_exit
 from src.launch import acquire_directory, interactive_configure
-from src.runtime import confirm_hdd_usage, configure_lzx, is_admin, is_windows_system_path
+from src.runtime import confirm_hdd_usage, configure_lzx, describe_protected_path, is_admin
 
 VERSION = "0.3.2"
 BUILD_DATE = "who cares"
@@ -198,9 +198,12 @@ def main() -> None:
     directory, args = acquire_directory(args, interactive_launch)
     args.directory = directory
 
-    # TODO: extend this guard to check nested Windows system directories, not just the root
-    if is_windows_system_path(directory):
-        logging.error("To compress Windows system files, please use 'compact.exe /compactos:always' instead")
+    # Guard against targeting protected system directories before proceeding with compression
+    protection_reason = describe_protected_path(directory)
+    if protection_reason:
+        logging.error("Cannot compress protected path: %s", protection_reason)
+        if 'Windows' in protection_reason:
+            logging.error("To compress Windows system files, use 'compact.exe /compactos:always' instead")
         prompt_exit()
         return
 

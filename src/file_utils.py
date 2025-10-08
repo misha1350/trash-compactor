@@ -10,7 +10,31 @@ from typing import Optional
 
 import wmi
 
-from .config import MIN_COMPRESSIBLE_SIZE, SIZE_THRESHOLDS, SKIP_EXTENSIONS
+from .config import DEFAULT_EXCLUDE_DIRECTORIES, MIN_COMPRESSIBLE_SIZE, SIZE_THRESHOLDS, SKIP_EXTENSIONS
+
+
+def _normalize_for_compare(path: str | Path) -> str:
+    normalized = os.path.normcase(os.path.normpath(str(path)))
+    if len(normalized) == 2 and normalized[1] == ':':
+        return normalized + os.sep
+    return normalized
+
+
+_DEFAULT_EXCLUDE_MAP: dict[str, str] = {
+    _normalize_for_compare(candidate): os.path.normpath(candidate)
+    for candidate in DEFAULT_EXCLUDE_DIRECTORIES
+}
+
+
+def _match_exclusion(normalized: str) -> tuple[bool, Optional[str]]:
+    for excluded_norm, display in _DEFAULT_EXCLUDE_MAP.items():
+        if normalized == excluded_norm:
+            return True, f"Protected system directory ({display})"
+        prefix = excluded_norm + os.sep
+        if normalized.startswith(prefix):
+            return True, f"Within protected system directory ({display})"
+    return False, None
+
 
 _SIZE_BREAKS, _SIZE_LABELS = zip(*SIZE_THRESHOLDS)
 KERNEL32 = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -186,6 +210,26 @@ def get_volume_details(path: str) -> VolumeDetails:
 def get_size_category(file_size: int) -> str:
     index = bisect.bisect_right(_SIZE_BREAKS, file_size)
     return _SIZE_LABELS[index] if index < len(_SIZE_LABELS) else 'large'
+
+
+def should_skip_directory(directory: Path) -> tuple[bool, str]:
+    normalized = _normalize_for_compare(directory)
+    match, reason = _match_exclusion(normalized)
+    if match:
+        return True, reason or ""
+    return False, ""
+
+
+def is_protected_path(path: str | Path) -> bool:
+    normalized = _normalize_for_compare(path)
+    match, _ = _match_exclusion(normalized)
+    return match
+
+
+def get_protection_reason(path: str | Path) -> Optional[str]:
+    normalized = _normalize_for_compare(path)
+    _, reason = _match_exclusion(normalized)
+    return reason
 
 
 def _hidden_startupinfo() -> subprocess.STARTUPINFO:
