@@ -12,7 +12,7 @@ from typing import Iterator, Optional, Sequence
 
 try:
     from colorama import Fore, Style  # type: ignore
-except ImportError:  # pragma: no cover - color output is optional
+except ImportError:  # pragma: no cover - colour output is optional
     class _ColorFallback:
         GREEN = ""
         YELLOW = ""
@@ -32,6 +32,21 @@ from .timer import PerformanceMonitor
 
 _BATCH_SIZE = 100
 _MAX_COMMAND_CHARS = 4000
+
+_WORKER_CAP: Optional[int] = None
+
+
+def set_worker_cap(limit: Optional[int]) -> None:
+    global _WORKER_CAP
+    if limit is not None and limit < 1:
+        raise ValueError("worker cap must be >= 1")
+    _WORKER_CAP = limit
+
+
+def _apply_worker_cap(default: int) -> int:
+    if _WORKER_CAP is None:
+        return default
+    return max(1, min(default, _WORKER_CAP))
 
 
 def _hidden_startupinfo() -> subprocess.STARTUPINFO:
@@ -183,20 +198,21 @@ def _xp_worker_count() -> int:
     _, logical = get_cpu_info()
     threads = logical
     if not threads:
-        return 1
+        return _apply_worker_cap(1)
 
     # Keep one thread free so the shell and I/O threads stay responsive
-    return max(1, threads - 1)
+    default = max(1, threads - 1)
+    return _apply_worker_cap(default)
 
 
 def _lzx_worker_count() -> int:
     physical, logical = get_cpu_info()
     cores = physical or logical
     if not cores or cores <= 4:
-        return 1
+        return _apply_worker_cap(1)
 
     # LZX saturates well with two worker processes on CPUs with 6 cores or more
-    return 2
+    return _apply_worker_cap(2)
 
 def _execute_plan(
     plan: Sequence[tuple[Path, int, str]],
@@ -431,8 +447,13 @@ def compress_directory_legacy(directory_path: str, thorough_check: bool = False)
         print("Using thorough checking mode - this will be slower but more accurate")
 
     physical_cores, _ = get_cpu_info()
-    worker_count = max(physical_cores or 1, 1)
-    print(f"Using {worker_count} parallel workers to maximize performance\n")
+    default_workers = max(physical_cores or 1, 1)
+    worker_count = _apply_worker_cap(default_workers)
+    if worker_count == default_workers:
+        print(f"Using {worker_count} parallel workers to maximize performance\n")
+    else:
+        noun = "worker" if worker_count == 1 else "workers"
+        print(f"Using {worker_count} {noun} due to storage throttling hints\n")
 
     targets = _collect_branding_targets(base_dir, stats, thorough_check)
     if not targets:

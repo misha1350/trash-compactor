@@ -8,7 +8,6 @@ class TimingStats:
     total_time: float = 0.0
     file_scan_time: float = 0.0
     compression_time: float = 0.0
-    # Removed verification_time: float = 0.0
     total_files: int = 0
     files_compressed: int = 0
     files_skipped: int = 0
@@ -93,8 +92,6 @@ class PerformanceMonitor:
 
     def time_compression(self) -> "SectionTimer":
         return SectionTimer(self, 'compression_time')
-
-    # Removed time_verification
 
     def increment_file_count(self) -> None:
         self.stats.total_files += 1

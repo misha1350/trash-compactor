@@ -20,21 +20,7 @@
 ### Option 1: Using the Executable (Recommended)
 
 1. [Download the latest release](https://github.com/misha1350/trash-compactor/releases/latest)
-2. Open PowerShell as Administrator:
-    - Right-click Start Menu
-    - Select "Windows PowerShell (Admin)" or "Windows Terminal (Admin)"
-3. Drag the downloaded file into the PowerShell window, or navigate to the folder that contains the downloaded app:
-    ```powershell
-    cd path\to\downloads
-    ```
-4. Run the executable:
-    ```powershell
-    .\trash-compactor.exe
-    ```
-    Verbose output:
-    ```powershell
-    .\trash-compactor.exe -v
-    ```
+2. Run the executable file
 
 ### Option 2: Running from Source
 
@@ -54,6 +40,10 @@ Note: For Option 2, ensure Git and Python 3.8+ are installed on your system.
 Optional: you can compile the app yourself as I did, using PyInstaller:
     ```
     python -m PyInstaller --onefile --name trash-compactor --uac-admin main.py 
+    ```
+    or
+    ```
+    python -m PyInstaller --onefile --name trash-compactor --uac-admin main.py --upx-dir 'c:\path\to\upx-win64'
     ```
 
 ## Usage
@@ -127,8 +117,6 @@ To contribute to this project:
 ## To-Do
 
 ### Immediate Priorities (v0.2.x)
-- Properly display a warning message if the directory that is being compressed is on a spinning hard drive instead of an SSD, eMMC storage, or an SD card, because HDDs can suffer from fragmentation and compressing files and having them fragmented will drastically worsen the already bad hard drive performance in the OS
-  - Tell user to go buy an SSD and clone the hard drive or make a clean install of the system
 - Replace `compact.exe` calls with direct Windows API calls:
   - Use `FSCTL_SET_COMPRESSION` via `DeviceIoControl` for compression
   - Use `GetFileAttributes()` to check compression state

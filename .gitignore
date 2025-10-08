@@ -32,3 +32,4 @@ htmlcov/
 .coverage
 .pytest_cache/
 trash-compactor.spec
+trash-compactor-user.spec

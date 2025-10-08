@@ -4,7 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2025-10-08
+### Added
+- `-s/--single-worker` flag (and interactive toggle) to run compression sequentially when fragile storage needs a gentler touch
+- HDD safeguard now offers an opt-in prompt to downgrade to single-worker mode and honours manual overrides automatically
+
+### Changed
+- Volume detection inspects only the target drive, blocks remote or non-NTFS paths up front, and logs flash controllers that omit seek-penalty hints
+- Compression and branding worker pools respect the new runtime worker cap, with user-facing messaging when throttling is active
+
 ## [0.3.1] - 2025-10-06
+
 ### Added
 - Now using batch compression for a reduction in separate compact.exe calls, resulting in a further 20-25% performance increase
 - Activating flags straight from the UI
