@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Changed
 - Volume detection inspects only the target drive, blocks remote or non-NTFS paths up front, and logs flash controllers that omit seek-penalty hints
 - Compression and branding worker pools respect the new runtime worker cap, with user-facing messaging when throttling is active
+- Removed administrative privilege requirement; compression now operates under standard user accounts
 
 ## [0.3.1] - 2025-10-06
 

@@ -15,9 +15,9 @@ from src import (
 )
 from src.console import display_banner, prompt_exit
 from src.launch import acquire_directory, interactive_configure
-from src.runtime import confirm_hdd_usage, configure_lzx, is_admin, is_windows_system_path
+from src.runtime import confirm_hdd_usage, configure_lzx, is_windows_system_path
 
-VERSION = "0.3.2"
+VERSION = "0.3.2-user"
 BUILD_DATE = "who cares"
 
 PRO_TIPS: Iterable[str] = (
@@ -175,11 +175,6 @@ def main() -> None:
         print(Fore.BLUE + "-v: Verbose output enabled" + Style.RESET_ALL)
 
     set_worker_cap(1 if args.single_worker else None)
-
-    if not is_admin():
-        logging.error("This script requires administrator privileges")
-        prompt_exit()
-        return
 
     # if not should_show_tips(args):
     #     display_tips(PRO_TIPS)

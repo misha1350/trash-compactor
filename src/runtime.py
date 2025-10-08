@@ -14,15 +14,6 @@ def sanitize_path(path: str) -> str:
     return os.path.normpath(path.strip(" '\""))
 
 
-def is_admin() -> bool:
-    try:
-        return os.getuid() == 0
-    except AttributeError:
-        import ctypes
-
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-
-
 def is_windows_system_path(directory: str) -> bool:
     return os.path.normpath(directory).lower().startswith(r"c:\windows")
 

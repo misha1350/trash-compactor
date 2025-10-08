@@ -13,32 +13,17 @@
   ## Requirements
 
   - Windows 10/11
-  - Administrator privileges
 
 ## Installation
 
 ### Option 1: Using the Executable (Recommended)
 
 1. [Download the latest release](https://github.com/misha1350/trash-compactor/releases/latest)
-2. Open PowerShell as Administrator:
-    - Right-click Start Menu
-    - Select "Windows PowerShell (Admin)" or "Windows Terminal (Admin)"
-3. Drag the downloaded file into the PowerShell window, or navigate to the folder that contains the downloaded app:
-    ```powershell
-    cd path\to\downloads
-    ```
-4. Run the executable:
-    ```powershell
-    .\trash-compactor.exe
-    ```
-    Verbose output:
-    ```powershell
-    .\trash-compactor.exe -v
-    ```
+2. Run the executable file
 
 ### Option 2: Running from Source
 
-1. Open PowerShell as Administrator
+1. Open PowerShell
 2. Clone and navigate to the repository:
     ```powershell
     git clone https://github.com/misha1350/trash-compactor.git
@@ -53,16 +38,16 @@ Note: For Option 2, ensure Git and Python 3.8+ are installed on your system.
 
 Optional: you can compile the app yourself as I did, using PyInstaller:
     ```
-    python -m PyInstaller --onefile --name trash-compactor --uac-admin main.py 
+    python -m PyInstaller --onefile --name trash-compactor main.py 
     ```
-    or
+    or, for a smaller file size:
     ```
-    python -m PyInstaller --onefile --name trash-compactor --uac-admin main.py --upx-dir 'c:\path\to\upx-win64'
+    python -m PyInstaller --onefile --name trash-compactor main.py --upx-dir 'c:\path\to\upx-win64'
     ```
 
 ## Usage
 
-1. Run the program as Administrator.
+1. Run the program.
 2. Enter the directory path you want to compress.
 3. The program will automatically:
     - Scan all files recursively
