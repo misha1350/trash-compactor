@@ -1,7 +1,9 @@
 import argparse
 import logging
+import os
 import sys
-from typing import Iterable
+from datetime import datetime
+from textwrap import dedent
 
 from colorama import Fore, Style, init
 
@@ -17,30 +19,23 @@ from src.console import display_banner, prompt_exit
 from src.launch import acquire_directory, interactive_configure
 from src.runtime import confirm_hdd_usage, configure_lzx, describe_protected_path, is_admin
 
-VERSION = "0.3.2"
+VERSION = "0.4.0-alpha"
 BUILD_DATE = "who cares"
 
-PRO_TIPS: Iterable[str] = (
-    "• Run with -v to see what's happening under the hood 🔧",
-    "• Run with -x to disable LZX compression 🐌",
-    "• Run with -f to force LZX compression on less capable CPUs 🚀",
-    "• Run with -t for thorough checking when using scheduled compression ⏰",
-    "• Run with -b to brand files using legacy method (separate branding mode) 🏷️",
-    "• Run with -s if you intend to compress files on an HDD instead of an SSD 🛑",
-    "• Use -h to display the help message (boring stuff) 📖",
-)
 
-SCHEDULE_TIPS: Iterable[str] = (
-    "• Use the -t flag for thorough checking when running daily compression tasks",
-    "• After initial compression, run with the -b flag to properly brand all compressed files",
-)
+def setup_logging(verbosity: int) -> None:
+    debug_enabled = verbosity >= 4
 
-
-def setup_logging(verbose: bool) -> None:
     class _Formatter(logging.Formatter):
+        def __init__(self, debug: bool) -> None:
+            super().__init__()
+            self._debug = debug
+
         def format(self, record: logging.LogRecord) -> str:
-            if record.levelno == logging.DEBUG and verbose:
-                return f"DEBUG: {record.getMessage()}"
+            if record.levelno == logging.DEBUG:
+                if self._debug:
+                    return f"DEBUG: {record.getMessage()}"
+                return ""
             if record.levelno == logging.INFO:
                 return record.getMessage()
             if record.levelno >= logging.WARNING:
@@ -48,37 +43,75 @@ def setup_logging(verbose: bool) -> None:
             return ""
 
     handler = logging.StreamHandler()
-    handler.setFormatter(_Formatter())
+    handler.setFormatter(_Formatter(debug_enabled))
 
     root_logger = logging.getLogger()
     root_logger.handlers = []
     root_logger.addHandler(handler)
-    root_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    root_logger.setLevel(logging.DEBUG if debug_enabled else logging.INFO)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    description = dedent(
+        """
+        Trash-Compactor applies Windows NTFS compression with guardrails that avoid
+        low-yield cache folders. Run without arguments to launch the interactive 
+        window, or supply flags if you want to automate your run.
+        """
+    ).strip()
+
+    epilog = dedent(
+        """
+        Examples:
+          trash-compactor.exe                         Launch interactive configuration
+          trash-compactor.exe C:\\Games               Compress immediately using defaults
+          trash-compactor.exe -t -v C:\\Projects      Thorough mode with verbose reporting
+          trash-compactor.exe -b C:\\Archive          Branding pass after initial compression
+
+        Verbosity levels:
+          -v    Summarise cache exclusions and entropy sampling
+          -vv   Include per-stage progress updates
+          -vvv  Add additional diagnostics for skipped files
+          -vvvv Enable full debug logging (developer focus)
+        """
+    ).rstrip()
+
     parser = argparse.ArgumentParser(
-        description="Compress files using Windows NTFS compression",
+        prog="trash-compactor",
+        description=description,
+        epilog=epilog,
+        formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("directory", nargs="?", help="Directory to compress")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug output")
+
+    parser.add_argument(
+        "directory",
+        nargs="?",
+        help="Target directory to compress. Omit to start the interactive walkthrough.",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase logging verbosity",
+    )
     parser.add_argument(
         "-x",
         "--no-lzx",
         action="store_true",
-        help="Disable LZX compression for better system responsiveness",
+        help="Disable LZX compression for better performance on low-end CPUs",
     )
     parser.add_argument(
         "-f",
         "--force-lzx",
         action="store_true",
-        help="Force LZX compression even on less capable CPUs",
+        help="Force LZX compression even if the CPU is deemed less capable for peak compression",
     )
     parser.add_argument(
         "-s",
         "--single-worker",
         action="store_true",
-        help="Throttle compression to a single worker to reduce disk fragmentation risk",
+        help="Throttle compression to a single worker to reduce disk fragmentation",
     )
 
     mode_group = parser.add_mutually_exclusive_group()
@@ -86,45 +119,32 @@ def build_parser() -> argparse.ArgumentParser:
         "-b",
         "--brand-files",
         action="store_true",
-        help="(Branding mode) Brand files as compressed using legacy method. Use after normal compression for proper marking.",
+        help="Branding mode. Runs compact.exe for Windows to mark files as compressed, if some files are reported as not",
     )
     mode_group.add_argument(
         "-t",
         "--thorough",
         action="store_true",
-        help="(Thorough mode) Use slower but more accurate file checking. Use for daily/scheduled compression tasks.",
+        help="Thorough mode. Performs slower but has more accurate compression state checks for scheduled runs",
     )
     return parser
 
 
-def should_show_tips(args: argparse.Namespace) -> bool:
-    return not (
-        args.verbose
-        or args.no_lzx
-        or args.force_lzx
-        or args.brand_files
-        or args.thorough
-        or getattr(args, "single_worker", False)
-    )
-
-
-def display_tips(lines: Iterable[str]) -> None:
-    print(Fore.YELLOW + "\nPro tips:" + Style.RESET_ALL)
-    for line in lines:
-        print(Fore.CYAN + line)
-
-
 def announce_mode(args: argparse.Namespace) -> None:
+    notices: list[str] = []
     if args.brand_files:
-        print(Fore.YELLOW + "\nRunning in branding mode:" + Style.RESET_ALL)
-        print(Fore.YELLOW + "This mode will help ensure files are properly marked as compressed in Windows." + Style.RESET_ALL)
-        print(Fore.YELLOW + "Use this after normal compression to prevent re-processing of files in future runs." + Style.RESET_ALL)
+        notices.append("Branding mode: ensure Windows records compressed attributes after the initial pass.")
     elif args.thorough:
-        print(Fore.YELLOW + "\nRunning in thorough checking mode:" + Style.RESET_ALL)
-        print(Fore.YELLOW + "This mode performs more accurate but slower compression status checks." + Style.RESET_ALL)
-        print(Fore.YELLOW + "Ideal for scheduled/daily compression tasks on previously compressed directories." + Style.RESET_ALL)
+        notices.append("Thorough mode: perform deeper compression status checks suited for scheduled runs.")
     if getattr(args, "single_worker", False):
-        print(Fore.YELLOW + "Single-worker mode enabled: compression batches will run sequentially." + Style.RESET_ALL)
+        notices.append("Single-worker mode: queue batches sequentially to minimise disk head contention.")
+
+    if not notices:
+        return
+
+    print()
+    for line in notices:
+        print(Fore.YELLOW + line + Style.RESET_ALL)
 
 
 def run_branding(directory: str, thorough: bool) -> None:
@@ -142,16 +162,11 @@ def run_branding(directory: str, thorough: bool) -> None:
         print("These files may be repeatedly processed in future runs.")
 
 
-def run_compression(directory: str, verbose: bool, thorough: bool) -> None:
+def run_compression(directory: str, verbosity: int, thorough: bool) -> None:
     logging.info("Starting compression of directory: %s", directory)
-    stats, monitor = compress_directory(directory, verbose=verbose, thorough_check=thorough)
+    stats, monitor = compress_directory(directory, verbosity=verbosity, thorough_check=thorough)
     print_compression_summary(stats)
     monitor.print_summary()
-
-    # if not thorough:
-    #     print(Fore.YELLOW + "\nPro tips for scheduled compression tasks:" + Style.RESET_ALL)
-    #     for tip in SCHEDULE_TIPS:
-    #         print(tip)
 
 
 def main() -> None:
@@ -172,7 +187,13 @@ def main() -> None:
     setup_logging(args.verbose)
 
     if args.verbose:
-        print(Fore.BLUE + "-v: Verbose output enabled" + Style.RESET_ALL)
+        verbose_labels = {
+            1: "Verbosity level 1: cache decisions and summary stats",
+            2: "Verbosity level 2: include stage-level progress",
+            3: "Verbosity level 3: extended diagnostics for skipped files",
+        }
+        label = verbose_labels.get(args.verbose, "Verbosity level 4: full debug logging enabled")
+        print(Fore.BLUE + label + Style.RESET_ALL)
 
     set_worker_cap(1 if args.single_worker else None)
 
@@ -180,9 +201,6 @@ def main() -> None:
         logging.error("This script requires administrator privileges")
         prompt_exit()
         return
-
-    # if not should_show_tips(args):
-    #     display_tips(PRO_TIPS)
 
     physical_cores, logical_cores = get_cpu_info()
     announce_mode(args)
@@ -214,7 +232,7 @@ def main() -> None:
     if args.brand_files:
         run_branding(directory, thorough=args.thorough)
     else:
-        run_compression(directory, verbose=args.verbose, thorough=args.thorough)
+        run_compression(directory, verbosity=args.verbose, thorough=args.thorough)
 
     print("\nOperation completed.")
     prompt_exit()

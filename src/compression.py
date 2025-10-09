@@ -1,12 +1,14 @@
 import ctypes
 import logging
+import math
 import os
 import subprocess
 import sys
 import threading
 import time
-from collections import OrderedDict
+from collections import Counter, OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Iterator, Optional, Sequence
 
@@ -27,26 +29,246 @@ from .config import (
     get_cpu_info,
 )
 from .file_utils import get_size_category, is_file_compressed, should_compress_file, should_skip_directory
-from .stats import CompressionStats, LegacyCompressionStats, Spinner
+from .stats import CompressionStats, DirectorySkipRecord, LegacyCompressionStats, Spinner
 from .timer import PerformanceMonitor
 
 _BATCH_SIZE = 100
 _MAX_COMMAND_CHARS = 4000
 
-_WORKER_CAP: Optional[int] = None
+_WORKER_CAP: ContextVar[Optional[int]] = ContextVar("worker_cap", default=None)
 
 
 def set_worker_cap(limit: Optional[int]) -> None:
-    global _WORKER_CAP
     if limit is not None and limit < 1:
         raise ValueError("worker cap must be >= 1")
-    _WORKER_CAP = limit
+    _WORKER_CAP.set(limit)
 
 
 def _apply_worker_cap(default: int) -> int:
-    if _WORKER_CAP is None:
+    limit = _WORKER_CAP.get()
+    if limit is None:
         return default
-    return max(1, min(default, _WORKER_CAP))
+    return max(1, min(default, limit))
+
+
+_CACHE_TERMINALS: tuple[str, ...] = (
+    'cache',
+    'cache2',
+    'cache_data',
+    'cachedata',
+    'media cache',
+    'code cache',
+    'gpu cache',
+    'cache storage',
+    'cache_storage',
+    'shadercache',
+)
+
+_CACHE_ROOT_MARKERS: tuple[str, ...] = (
+    'appdata',
+    'programdata',
+    'locallow',
+    'localcache',
+    'localappdata',
+    'users',
+    'temp',
+)
+
+_CACHE_HINTS: tuple[str, ...] = (
+    'chrome',
+    'chromium',
+    'brave',
+    'edge',
+    'electron',
+    'discord',
+    'teams',
+    'steam',
+    'telegram',
+    'whatsapp',
+    'slack',
+    'vivaldi',
+    'opera',
+    'githubdesktop',
+    'riot',
+    'epic',
+    'zoom',
+    'spotify',
+    'firefox',
+    'mozilla',
+)
+
+
+def _relative_to_base(path: Path, base: Path) -> str:
+    try:
+        return str(path.relative_to(base))
+    except ValueError:
+        return str(path)
+
+
+def _cache_directory_reason(path: Path) -> Optional[str]:
+    parts = path.parts
+    parts_cf = [segment.casefold() for segment in parts]
+    if len(parts_cf) <= 2:
+        return None
+
+    terminal_hint: Optional[str] = None
+    for candidate in parts_cf[-2:]:
+        for keyword in _CACHE_TERMINALS:
+            if keyword in candidate:
+                terminal_hint = keyword
+                break
+        if terminal_hint:
+            break
+
+    if terminal_hint is None:
+        return None
+
+    if not any(marker in parts_cf for marker in _CACHE_ROOT_MARKERS):
+        return None
+
+    hint: Optional[str] = None
+    for original, lowered in zip(parts, parts_cf):
+        for token in _CACHE_HINTS:
+            if token in lowered:
+                hint = original
+                break
+        if hint:
+            break
+
+    descriptor = hint or parts[-1]
+    return f"{descriptor} cache directory"
+
+
+def _shannon_entropy(sample: bytes) -> float:
+    if not sample:
+        return 0.0
+    total = len(sample)
+    frequencies = Counter(sample)
+    entropy = 0.0
+    for count in frequencies.values():
+        probability = count / total
+        entropy -= probability * math.log2(probability)
+    return entropy
+
+
+def _sample_directory_entropy(
+    path: Path,
+    max_files: int = 24,
+    chunk_size: int = 65536,
+    max_bytes: int = 4 * 1024 * 1024,
+) -> tuple[Optional[float], int, int]:
+    pending = deque([path])
+    sampled_files = 0
+    sampled_bytes = 0
+    weighted_entropy = 0.0
+
+    while pending and sampled_files < max_files and sampled_bytes < max_bytes:
+        current = pending.popleft()
+        try:
+            entries = list(current.iterdir())
+        except OSError as exc:
+            logging.debug("Unable to inspect %s for entropy: %s", current, exc)
+            continue
+
+        for entry in entries:
+            if entry.is_dir():
+                pending.append(entry)
+                continue
+
+            try:
+                with entry.open('rb') as stream:
+                    data = stream.read(chunk_size)
+            except OSError as exc:
+                logging.debug("Unable to sample %s for entropy: %s", entry, exc)
+                continue
+
+            if not data:
+                continue
+
+            entropy = _shannon_entropy(data)
+            length = len(data)
+            sampled_files += 1
+            sampled_bytes += length
+            weighted_entropy += entropy * length
+
+            if sampled_files >= max_files or sampled_bytes >= max_bytes:
+                break
+
+        if sampled_files >= max_files or sampled_bytes >= max_bytes:
+            break
+
+    if sampled_bytes == 0:
+        return None, sampled_files, sampled_bytes
+
+    average_entropy = weighted_entropy / sampled_bytes
+    return average_entropy, sampled_files, sampled_bytes
+
+
+def _evaluate_cache_directory(directory: Path, base_dir: Path, collect_entropy: bool) -> Optional[DirectorySkipRecord]:
+    reason = _cache_directory_reason(directory)
+    if reason is None:
+        return None
+
+    average_entropy = None
+    sampled_files = 0
+    sampled_bytes = 0
+    if collect_entropy:
+        average_entropy, sampled_files, sampled_bytes = _sample_directory_entropy(directory)
+
+    return DirectorySkipRecord(
+        path=str(directory),
+        relative_path=_relative_to_base(directory, base_dir),
+        reason=reason,
+        category='cache',
+        average_entropy=average_entropy,
+        sampled_files=sampled_files,
+        sampled_bytes=sampled_bytes,
+    )
+
+
+def _maybe_skip_directory(directory: Path, base_dir: Path, stats: CompressionStats, collect_entropy: bool) -> bool:
+    skip, reason = should_skip_directory(directory)
+    if skip:
+        stats.directory_skips.append(
+            DirectorySkipRecord(
+                path=str(directory),
+                relative_path=_relative_to_base(directory, base_dir),
+                reason=reason or "Excluded system directory",
+                category='system',
+            )
+        )
+        logging.debug("Skipping system directory %s: %s", directory, reason)
+        return True
+
+    cache_record = _evaluate_cache_directory(directory, base_dir, collect_entropy)
+    if cache_record:
+        stats.directory_skips.append(cache_record)
+        logging.debug("Skipping cache directory %s: %s", directory, cache_record.reason)
+        return True
+
+    return False
+
+
+def _log_directory_skips(stats: CompressionStats, verbosity: int) -> None:
+    if verbosity < 1:
+        return
+
+    cache_records = [record for record in stats.directory_skips if record.category == 'cache']
+    if not cache_records:
+        return
+
+    logging.info("Skipped %s cache directories (entropy in bits/byte):", len(cache_records))
+    for record in cache_records:
+        if record.average_entropy is not None:
+            logging.info(
+                " - %s - %s (entropy %.2f across %s files)",
+                record.relative_path,
+                record.reason,
+                record.average_entropy,
+                record.sampled_files,
+            )
+        else:
+            logging.info(" - %s - %s", record.relative_path, record.reason)
 
 
 def _hidden_startupinfo() -> subprocess.STARTUPINFO:
@@ -88,21 +310,7 @@ def legacy_compress_file(file_path: Path) -> bool:
         return False
 
 
-def get_compressed_size(file_path: Path) -> int:
-    getter = ctypes.windll.kernel32.GetCompressedFileSizeW
-    getter.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_ulong)]
-    getter.restype = ctypes.c_ulong
-
-    high = ctypes.c_ulong(0)
-    low = getter(str(file_path), ctypes.byref(high))
-    if low == 0xFFFFFFFF:
-        error = ctypes.get_last_error()
-        if error:
-            raise ctypes.WinError(error)
-    return (high.value << 32) + low
-
-
-def compress_directory(directory_path: str, verbose: bool = False, thorough_check: bool = False) -> tuple[CompressionStats, PerformanceMonitor]:
+def compress_directory(directory_path: str, verbosity: int = 0, thorough_check: bool = False) -> tuple[CompressionStats, PerformanceMonitor]:
     stats = CompressionStats()
     monitor = PerformanceMonitor()
     monitor.start_operation()
@@ -111,21 +319,26 @@ def compress_directory(directory_path: str, verbose: bool = False, thorough_chec
     if thorough_check:
         logging.info("Using thorough checking mode - this will be slower but more accurate for previously compressed files")
 
-    all_files = list(_iter_files(base_dir))
+    all_files = list(_iter_files(base_dir, stats, verbosity))
     total_files = len(all_files)
     monitor.stats.total_files = total_files
 
+    _log_directory_skips(stats, verbosity)
+
+    debug_output = verbosity >= 4
+    spinner_enabled = verbosity == 0
+
     spinner: Optional[Spinner] = None
-    if not verbose:
+    if spinner_enabled:
         spinner = Spinner()
         spinner.set_label("Scanning files...")
         spinner.start(total=total_files)
         spinner.update(0, "")
 
-    plan = _plan_compression(all_files, stats, monitor, thorough_check, spinner, verbose)
+    plan = _plan_compression(all_files, stats, monitor, thorough_check, spinner, debug_output)
     monitor.stats.files_skipped = stats.skipped_files
 
-    if spinner and not verbose:
+    if spinner:
         final_skip_message = f"Skipped {stats.skipped_files}/{total_files} poorly compressible files"
         spinner.stop(final_message=final_skip_message)
         spinner = None
@@ -135,7 +348,7 @@ def compress_directory(directory_path: str, verbose: bool = False, thorough_chec
             plan,
             stats,
             monitor,
-            verbose,
+            debug_output,
         )
 
     monitor.stats.files_compressed = stats.compressed_files
@@ -144,19 +357,15 @@ def compress_directory(directory_path: str, verbose: bool = False, thorough_chec
     return stats, monitor
 
 
-def _iter_files(root: Path) -> Iterator[Path]:
+def _iter_files(root: Path, stats: CompressionStats, verbosity: int) -> Iterator[Path]:
+    collect_entropy = verbosity >= 1
     for current_root, dirnames, files in os.walk(root):
         current_base = Path(current_root)
 
-        keep_dirs: list[str] = []
-        for directory in dirnames:
-            candidate = current_base / directory
-            skip, reason = should_skip_directory(candidate)
-            if skip:
-                logging.debug("Skipping directory %s: %s", candidate, reason)
-                continue
-            keep_dirs.append(directory)
-        dirnames[:] = keep_dirs
+        for index in range(len(dirnames) - 1, -1, -1):
+            candidate = current_base / dirnames[index]
+            if _maybe_skip_directory(candidate, root, stats, collect_entropy):
+                del dirnames[index]
 
         for name in files:
             yield current_base / name
@@ -168,12 +377,12 @@ def _plan_compression(
     monitor: PerformanceMonitor,
     thorough_check: bool,
     spinner: Optional[Spinner],
-    verbose: bool,
+    debug_output: bool,
 ) -> list[tuple[Path, int, str]]:
     candidates: list[tuple[Path, int, str]] = []
     with monitor.time_file_scan():
         for index, file_path in enumerate(files, start=1):
-            if spinner and not verbose:
+            if spinner and not debug_output:
                 spinner.update(index)
             try:
                 should_compress, reason, current_size = should_compress_file(file_path, thorough_check)
@@ -229,7 +438,7 @@ def _execute_plan(
     plan: Sequence[tuple[Path, int, str]],
     stats: CompressionStats,
     monitor: PerformanceMonitor,
-    verbose: bool,
+    debug_output: bool,
 ) -> None:
     total = len(plan)
     if not total:
@@ -309,7 +518,7 @@ def _execute_plan(
         def _advance(count: int) -> None:
             if count <= 0:
                 return
-            if verbose:
+            if debug_output:
                 progress['processed'] = min(progress['processed'] + count, progress['total'])
                 return
             with render_lock:
@@ -375,7 +584,7 @@ def _execute_plan(
 
     def _render_stage_statuses() -> None:
         nonlocal rendered_lines, render_initialized
-        if verbose or not stage_items:
+        if debug_output or not stage_items:
             return
 
         spinner_chars = ['\\', '|', '/', '-']
@@ -420,12 +629,12 @@ def _execute_plan(
     render_thread: Optional[threading.Thread] = None
 
     try:
-        if not verbose and stage_items:
+        if not debug_output and stage_items:
             render_thread = threading.Thread(target=_render_loop, daemon=True)
             render_thread.start()
 
         for idx, (algorithm, entries) in enumerate(stage_items):
-            if not verbose:
+            if not debug_output:
                 with render_lock:
                     stage_states[idx] = 'running'
 
@@ -434,7 +643,7 @@ def _execute_plan(
             else:
                 _process_group(algorithm, entries, _xp_worker_count(), idx)
 
-            if not verbose:
+            if not debug_output:
                 with render_lock:
                     stage_states[idx] = 'done'
                     stage_progress[idx]['processed'] = stage_progress[idx]['total']

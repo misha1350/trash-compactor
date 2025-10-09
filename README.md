@@ -102,7 +102,7 @@ For optimal results when running compression tasks regularly (daily/weekly):
 
 ### Additional Options
 
-- `-v, --verbose`: Enable detailed output
+- `-v, --verbose`: Show cache exclusion decisions with entropy sampling (supports up to `-vvvv` for debug logs)
 - `-x, --no-lzx`: Disable LZX compression for better system responsiveness
 - `-f, --force-lzx`: Force LZX compression even on less capable CPUs
 

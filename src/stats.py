@@ -78,6 +78,17 @@ class Spinner:
 
 
 @dataclass
+class DirectorySkipRecord:
+    path: str
+    relative_path: str
+    reason: str
+    category: str
+    average_entropy: Optional[float] = None
+    sampled_files: int = 0
+    sampled_bytes: int = 0
+
+
+@dataclass
 class CompressionStats:
     compressed_files: int = 0
     skipped_files: int = 0
@@ -86,6 +97,7 @@ class CompressionStats:
     total_compressed_size: int = 0
     total_skipped_size: int = 0
     errors: List[str] = field(default_factory=list)
+    directory_skips: List[DirectorySkipRecord] = field(default_factory=list)
 
 
 @dataclass

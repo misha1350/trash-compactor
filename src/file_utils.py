@@ -39,6 +39,19 @@ def _match_exclusion(normalized: str) -> tuple[bool, Optional[str]]:
 _SIZE_BREAKS, _SIZE_LABELS = zip(*SIZE_THRESHOLDS)
 KERNEL32 = ctypes.WinDLL('kernel32', use_last_error=True)
 
+_GET_COMPRESSED_FILE_SIZE = KERNEL32.GetCompressedFileSizeW
+_GET_COMPRESSED_FILE_SIZE.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+_GET_COMPRESSED_FILE_SIZE.restype = wintypes.DWORD
+
+def get_ntfs_compressed_size(file_path: Path) -> int:
+    high = wintypes.DWORD()
+    low = _GET_COMPRESSED_FILE_SIZE(str(file_path), ctypes.byref(high))
+    if low == 0xFFFFFFFF:
+        error = ctypes.get_last_error()
+        if error:
+            raise ctypes.WinError(error)
+    return (high.value << 32) + low
+
 DRIVE_UNKNOWN = 0
 DRIVE_NO_ROOT_DIR = 1
 DRIVE_REMOVABLE = 2
@@ -260,24 +273,16 @@ def check_compression_with_compact(file_path: Path) -> bool:
 def is_file_compressed(file_path: Path, thorough_check: bool = False) -> tuple[bool, int]:
     try:
         actual_size = file_path.stat().st_size
-    except Exception as exc:
-        logging.error("Failed to get actual file size: %s", exc)
+    except OSError as exc:
+        logging.error("Failed to get actual file size for %s: %s", file_path, exc)
         return False, 0
 
-    getter = KERNEL32.GetCompressedFileSizeW
-    getter.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
-    getter.restype = wintypes.DWORD
+    try:
+        compressed_size = get_ntfs_compressed_size(file_path)
+    except OSError as exc:
+        logging.error("Failed to get compressed size for %s: %s", file_path, exc)
+        return False, actual_size
 
-    high = wintypes.DWORD()
-    low = getter(str(file_path), ctypes.byref(high))
-
-    if low == 0xFFFFFFFF:
-        error = ctypes.get_last_error()
-        if error:
-            logging.error("Failed to get compressed size: %s", ctypes.WinError(error))
-            return False, actual_size
-
-    compressed_size = (high.value << 32) + low
     if compressed_size < actual_size:
         return True, compressed_size
 
@@ -296,17 +301,18 @@ def should_compress_file(file_path: Path, thorough_check: bool = False) -> tuple
 
     try:
         file_size = file_path.stat().st_size
-        if file_size < MIN_COMPRESSIBLE_SIZE:
-            return False, f"File too small ({file_size} bytes)", file_size
+    except OSError as exc:
+        logging.error("Failed to stat %s: %s", file_path, exc)
+        return False, f"Unable to read file size: {exc}", 0
 
-        is_compressed, compressed_size = is_file_compressed(file_path, thorough_check)
-        if is_compressed:
-            return False, "File is already compressed", compressed_size
+    if file_size < MIN_COMPRESSIBLE_SIZE:
+        return False, f"File too small ({file_size} bytes)", file_size
 
-        return True, "File eligible for compression", file_size
-    except Exception as exc:
-        logging.error("Error checking file %s: %s", file_path, exc)
-        return False, f"Error during check: {exc}", 0
+    is_compressed, compressed_size = is_file_compressed(file_path, thorough_check)
+    if is_compressed:
+        return False, "File is already compressed", compressed_size
+
+    return True, "File eligible for compression", file_size
 
 
 def is_hard_drive(drive_path: str) -> bool:
