@@ -6,7 +6,14 @@ from colorama import Fore, Style
 
 from . import config
 from .console import EscapeExit, announce_cancelled, read_user_input
-from .file_utils import is_hard_drive
+from .file_utils import (
+    DRIVE_FIXED,
+    DRIVE_REMOTE,
+    get_protection_reason,
+    get_volume_details,
+    is_protected_path,
+)
+from .compression import set_worker_cap
 
 
 def sanitize_path(path: str) -> str:
@@ -23,7 +30,11 @@ def is_admin() -> bool:
 
 
 def is_windows_system_path(directory: str) -> bool:
-    return os.path.normpath(directory).lower().startswith(r"c:\windows")
+    return is_protected_path(directory)
+
+
+def describe_protected_path(directory: str) -> Optional[str]:
+    return get_protection_reason(directory)
 
 
 def configure_lzx(choice_enabled: bool, force_lzx: bool, cpu_capable: bool, physical: int, logical: int) -> bool:
@@ -73,16 +84,62 @@ def resolve_directory(argument: Optional[str]) -> str:
         pending = None
 
 
-def confirm_hdd_usage(directory: str) -> bool:
-    if not is_hard_drive(directory):
+def confirm_hdd_usage(directory: str, force_serial: bool) -> bool:
+    details = get_volume_details(directory)
+    throttle_requested = force_serial  # Carry over manual single-worker overrides
+    target_label = details.drive_letter or directory
+
+    if details.anchor is None:
+        logging.error("Unable to resolve volume for %s", directory)
+        print(Fore.RED + "Unable to resolve the target volume. Please verify the path." + Style.RESET_ALL)
+        return False
+
+    if details.drive_type == DRIVE_REMOTE:
+        logging.error("Network shares are not supported for compression targets: %s", directory)
+        print(Fore.RED + "Network shares are not supported targets for compression." + Style.RESET_ALL)
+        print("Please select a local NTFS volume instead.")
+        return False
+
+    if details.filesystem and details.filesystem != 'NTFS':
+        logging.error(
+            "Compression requires NTFS, but %s reports %s",
+            details.drive_letter or directory,
+            details.filesystem,
+        )
+        print(Fore.RED + "Windows compression requires NTFS." + Style.RESET_ALL)
+        print(f"Detected filesystem: {details.filesystem or 'unknown'}")
+        return False
+
+    if details.drive_type != DRIVE_FIXED:
+        logging.info(
+            "Volume %s is not a fixed disk (type=%s); skipping HDD warning.",
+            target_label,
+            details.drive_type,
+        )
+        if throttle_requested:
+            set_worker_cap(1)
+            logging.info("Single-worker mode honored even though the drive is not fixed media.")
         return True
 
-    print(Fore.YELLOW + "You may be attempting to compress files on a traditional spinning hard drive. (But the crude logic may be not working properly)")
-    print("If it truly is the case, this can lead to file fragmentation and decreased performance. (solid state storage doesn't have this)" + Style.RESET_ALL)
+    if details.rotational is not True:
+        if details.rotational is None:
+            logging.debug(
+                "Drive %s did not report seek penalty; treating as non-HDD."
+                " Flash controllers such as eMMC and SD readers may often omit this flag.",
+                target_label,
+            )
+        if throttle_requested:
+            set_worker_cap(1)
+            logging.info("Single-worker mode requested explicitly for %s.", target_label)
+        return True
+
+    print(Fore.YELLOW + "Detected a traditional spinning hard drive for this path." + Style.RESET_ALL)
+    print("Sustained compression can thrash the disk heads, fragment files, and slow app/game launches." + Style.RESET_ALL)
     print(Fore.YELLOW + "\nRecommendation:" + Style.RESET_ALL)
-    print("• Consider upgrading to an SSD for your system drive")
-    print("• If you must use an HDD, be aware that compression may reduce overall performance")
-    print("• Defragment your drive after compression completes")
+    print("• Run the task during idle hours and use the single-worker mode (-s)")
+    print("• Defragment the drive once compression finishes")
+    print("• Prefer compressing rarely modified folders on HDDs")
+
 
     print("\n" + Fore.YELLOW + "Do you want to proceed anyway? (y/n): " + Style.RESET_ALL, end="")
     try:
@@ -93,6 +150,21 @@ def confirm_hdd_usage(directory: str) -> bool:
     if response not in {"y", "yes"}:
         print(Fore.CYAN + "Operation cancelled." + Style.RESET_ALL)
         return False
+
+    if not throttle_requested:
+        print(Fore.YELLOW + "\nThrottle compression to a single worker to avoid disk fragmentation? (Y/n): " + Style.RESET_ALL, end="")
+        try:
+            throttle_response = read_user_input("").strip().lower()
+        except (KeyboardInterrupt, EscapeExit):
+            announce_cancelled()
+            return False
+        throttle_requested = throttle_response in {"", "y", "yes"}
+
+    if throttle_requested:
+        set_worker_cap(1)
+        logging.info("Single-worker mode engaged for %s due to HDD safeguards.", target_label)
+        if not force_serial:
+            print(Fore.YELLOW + "Running sequentially to keep fragmentation in check." + Style.RESET_ALL)
 
     print(Fore.YELLOW + "\nProceeding with compression on HDD. This may impact system performance." + Style.RESET_ALL)
     return True

@@ -1,3 +1,4 @@
+import os
 from collections.abc import Iterable
 from typing import Final, Set, Tuple
 
@@ -33,8 +34,39 @@ SIZE_THRESHOLDS: Final[Tuple[Tuple[int, str], ...]] = (
     (1024 * 1024, 'medium'),
 )
 
+
+def _default_excluded_directories() -> Tuple[str, ...]:
+    system_drive = os.environ.get('SystemDrive', 'C:')
+    drive_root = system_drive if system_drive.endswith(('\\', '/')) else f"{system_drive}\\"
+
+    def _drive_path(segment: str) -> str:
+        return os.path.join(drive_root, segment)
+
+    entries = [
+        os.environ.get('SystemRoot') or _drive_path('Windows'),
+        _drive_path('$Recycle.Bin'),
+        _drive_path('System Volume Information'),
+        _drive_path('Recovery'),
+        _drive_path('PerfLogs'),
+        _drive_path('Windows.old'),
+    ]
+
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for entry in entries:
+        if not entry:
+            continue
+        normalized = os.path.normcase(os.path.normpath(entry))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(os.path.normpath(entry))
+    return tuple(cleaned)
+
 MIN_LOGICAL_CORES_FOR_LZX: Final[int] = 5
 MIN_PHYSICAL_CORES_FOR_LZX: Final[int] = 3
+
+DEFAULT_EXCLUDE_DIRECTORIES: Final[Tuple[str, ...]] = _default_excluded_directories()
 
 
 def get_cpu_info() -> Tuple[int | None, int | None]:

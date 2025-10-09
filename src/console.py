@@ -13,7 +13,7 @@ BANNER = r"""
 
 
 class EscapeExit(Exception):
-    """Raised when the user exits via Esc twice."""
+    """Raised when the user exits by pressing Esc twice"""
 
 
 def announce_cancelled() -> None:
