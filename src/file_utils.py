@@ -139,6 +139,39 @@ class VolumeDetails:
     rotational: Optional[bool]
 
 
+@dataclass(frozen=True)
+class DirectoryDecision:
+    skip: bool
+    reason: str = ""
+
+    @property
+    def allow(self) -> bool:
+        return not self.skip
+
+    @classmethod
+    def deny(cls, reason: str) -> "DirectoryDecision":
+        return cls(True, reason)
+
+    @classmethod
+    def allow_path(cls) -> "DirectoryDecision":
+        return cls(False, "")
+
+
+@dataclass(frozen=True)
+class CompressionDecision:
+    should_compress: bool
+    reason: str
+    size_hint: int = 0
+
+    @classmethod
+    def allow(cls, size_hint: int) -> "CompressionDecision":
+        return cls(True, "File eligible for compression", size_hint)
+
+    @classmethod
+    def deny(cls, reason: str, size_hint: int = 0) -> "CompressionDecision":
+        return cls(False, reason, size_hint)
+
+
 def _volume_anchor(path: str) -> Optional[str]:
     if not path:
         return None
@@ -225,12 +258,12 @@ def get_size_category(file_size: int) -> str:
     return _SIZE_LABELS[index] if index < len(_SIZE_LABELS) else 'large'
 
 
-def should_skip_directory(directory: Path) -> tuple[bool, str]:
+def should_skip_directory(directory: Path) -> DirectoryDecision:
     normalized = _normalize_for_compare(directory)
     match, reason = _match_exclusion(normalized)
     if match:
-        return True, reason or ""
-    return False, ""
+        return DirectoryDecision.deny(reason or "Protected system directory")
+    return DirectoryDecision.allow_path()
 
 
 def is_protected_path(path: str | Path) -> bool:
@@ -294,25 +327,25 @@ def is_file_compressed(file_path: Path, thorough_check: bool = False) -> tuple[b
     return False, compressed_size
 
 
-def should_compress_file(file_path: Path, thorough_check: bool = False) -> tuple[bool, str, int]:
+def should_compress_file(file_path: Path, thorough_check: bool = False) -> CompressionDecision:
     suffix = file_path.suffix.lower()
     if suffix in SKIP_EXTENSIONS:
-        return False, f"Skipped due to extension {suffix}", 0
+        return CompressionDecision.deny(f"Skipped due to extension {suffix}")
 
     try:
         file_size = file_path.stat().st_size
     except OSError as exc:
         logging.error("Failed to stat %s: %s", file_path, exc)
-        return False, f"Unable to read file size: {exc}", 0
+        return CompressionDecision.deny(f"Unable to read file size: {exc}")
 
     if file_size < MIN_COMPRESSIBLE_SIZE:
-        return False, f"File too small ({file_size} bytes)", file_size
+        return CompressionDecision.deny(f"File too small ({file_size} bytes)", file_size)
 
     is_compressed, compressed_size = is_file_compressed(file_path, thorough_check)
     if is_compressed:
-        return False, "File is already compressed", compressed_size
+        return CompressionDecision.deny("File is already compressed", compressed_size)
 
-    return True, "File eligible for compression", file_size
+    return CompressionDecision.allow(file_size)
 
 
 def is_hard_drive(drive_path: str) -> bool:

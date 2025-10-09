@@ -6,6 +6,7 @@ from typing import ClassVar, Optional
 
 from colorama import Fore, Style
 
+from . import config
 from .console import EscapeExit, announce_cancelled, read_user_input
 from .runtime import resolve_directory, sanitize_path
 
@@ -16,6 +17,10 @@ FLAG_METADATA: dict[str, tuple[str, str]] = {
     'thorough': ('-t', 'Thorough checking mode'),
     'brand_files': ('-b', 'Branding mode'),
     'single_worker': ('-s', 'Throttle for HDDs'),
+    'min_savings': (
+        '--min-savings=<percent>',
+        f"Set minimum expected savings percentage ({config.MIN_SAVINGS_PERCENT:.0f}-{config.MAX_SAVINGS_PERCENT:.0f})",
+    ),
 }
 
 SHORT_FLAG_KEYS: dict[str, str] = {
@@ -35,6 +40,7 @@ LONG_FLAG_KEYS: dict[str, str] = {
     'thorough': 'thorough',
     'brand-files': 'brand_files',
     'single-worker': 'single_worker',
+    'min-savings': 'min_savings',
 }
 
 _START_COMMANDS: set[str] = {'s', 'start'}
@@ -55,6 +61,7 @@ class LaunchState:
     thorough: bool = False
     brand_files: bool = False
     single_worker: bool = False
+    min_savings: float = config.DEFAULT_MIN_SAVINGS_PERCENT
 
     MAX_VERBOSITY: ClassVar[int] = 4
 
@@ -65,6 +72,9 @@ class LaunchState:
         level = max(0, min(level, self.MAX_VERBOSITY))
         self.verbose = 0 if level == 0 or self.verbose == level else level
 
+    def set_min_savings(self, percent: float) -> None:
+        self.min_savings = config.clamp_savings_percent(percent)
+
     def _silence_conflicts(self, key: str) -> None:
         for primary, secondary in _MUTUALLY_EXCLUSIVE:
             if key == primary and getattr(self, secondary):
@@ -73,6 +83,8 @@ class LaunchState:
                 setattr(self, primary, False)
 
     def toggle(self, key: str) -> None:
+        if key == 'min_savings':
+            return
         if key == 'verbose':
             self.set_verbose_level(1)
             return
@@ -89,6 +101,11 @@ def _format_active_flags(state: LaunchState) -> str:
 
     for key, (flag, description) in FLAG_METADATA.items():
         if key == 'verbose':
+            continue
+        if key == 'min_savings':
+            items.append(
+                f"Minimum savings {state.min_savings:.1f}% ({flag})"
+            )
             continue
         if getattr(state, key):
             items.append(f"{description} ({flag})")
@@ -110,17 +127,33 @@ def _coerce_verbose_value(raw: Optional[str]) -> int:
         return 1
 
 
-def _handle_long_option(token: str, state: LaunchState) -> None:
-    option = token[2:]
-    value: Optional[str] = None
-    if '=' in option:
-        option, value = option.split('=', 1)
+def _parse_min_savings(value: Optional[str]) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    stripped = value.strip().rstrip('%')
+    try:
+        return float(stripped)
+    except ValueError:
+        return None
 
+
+def _handle_long_option(option: str, value: Optional[str], state: LaunchState) -> None:
     key = LONG_FLAG_KEYS.get(option)
     if key == 'verbose_off':
         state.reset_verbose()
     elif key == 'verbose':
         state.set_verbose_level(_coerce_verbose_value(value))
+    elif key == 'min_savings':
+        parsed = _parse_min_savings(value)
+        if parsed is None:
+            print(
+                Fore.RED
+                + "Invalid value for --min-savings. Provide a number between "
+                + f"{config.MIN_SAVINGS_PERCENT:.0f} and {config.MAX_SAVINGS_PERCENT:.0f}."
+                + Style.RESET_ALL
+            )
+            return
+        state.set_min_savings(parsed)
     elif key:
         state.toggle(key)
 
@@ -146,11 +179,21 @@ def _handle_short_bundle(bundle: str, state: LaunchState) -> None:
 
 def _apply_flag_string(raw: str, state: LaunchState) -> None:
     tokens = shlex.split(raw, posix=False)
-    for token in tokens:
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
         if token.startswith('--'):
-            _handle_long_option(token, state)
+            option = token[2:]
+            value: Optional[str] = None
+            if '=' in option:
+                option, value = option.split('=', 1)
+            elif index + 1 < len(tokens) and not tokens[index + 1].startswith('-'):
+                value = tokens[index + 1]
+                index += 1
+            _handle_long_option(option, value, state)
         elif token.startswith('-') and len(token) > 1:
             _handle_short_bundle(token, state)
+        index += 1
 
 
 def _split_path_and_flags(tokens: list[str]) -> tuple[list[str], list[str]]:
@@ -170,7 +213,11 @@ def _print_interactive_status(state: LaunchState) -> None:
     current_directory = state.directory or "<not set>"
     print(
         Fore.CYAN
-        + f"\nCurrent directory: {current_directory}\nActive flags: {active_flags}"
+        + (
+            f"\nCurrent directory: {current_directory}"
+            f"\nActive flags: {active_flags}"
+            f"\nMin savings threshold: {state.min_savings:.1f}%"
+        )
         + Style.RESET_ALL
     )
 
@@ -268,6 +315,7 @@ def _apply_state_to_args(args: Namespace, state: LaunchState) -> Namespace:
     args.thorough = state.thorough
     args.brand_files = state.brand_files
     args.single_worker = state.single_worker
+    args.min_savings = config.clamp_savings_percent(state.min_savings)
     return args
 
 
@@ -280,6 +328,7 @@ def interactive_configure(args: Namespace) -> Namespace:
         thorough=args.thorough,
         brand_files=args.brand_files,
         single_worker=getattr(args, 'single_worker', False),
+        min_savings=config.clamp_savings_percent(getattr(args, 'min_savings', config.DEFAULT_MIN_SAVINGS_PERCENT)),
     )
 
     print(Fore.YELLOW + "\nInteractive launch detected. Configure your run before starting." + Style.RESET_ALL)

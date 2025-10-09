@@ -1,9 +1,9 @@
 import argparse
 import logging
-import os
 import sys
 from datetime import datetime
 from textwrap import dedent
+from typing import Optional, Sequence
 
 from colorama import Fore, Style, init
 
@@ -113,6 +113,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Throttle compression to a single worker to reduce disk fragmentation",
     )
+    parser.add_argument(
+        "--min-savings",
+        type=float,
+        default=None,
+        help="Skip directories when estimated savings fall below this percentage (0-90, default 10)",
+    )
 
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -162,45 +168,56 @@ def run_branding(directory: str, thorough: bool) -> None:
         print("These files may be repeatedly processed in future runs.")
 
 
-def run_compression(directory: str, verbosity: int, thorough: bool) -> None:
+def run_compression(directory: str, verbosity: int, thorough: bool, min_savings: float) -> None:
     logging.info("Starting compression of directory: %s", directory)
-    stats, monitor = compress_directory(directory, verbosity=verbosity, thorough_check=thorough)
+    stats, monitor = compress_directory(
+        directory,
+        verbosity=verbosity,
+        thorough_check=thorough,
+        min_savings_percent=min_savings,
+    )
     print_compression_summary(stats)
     monitor.print_summary()
 
 
-def main() -> None:
-    init(autoreset=True)
-    display_banner(VERSION, BUILD_DATE)
-
-    args = build_parser().parse_args()
-
-    if args.no_lzx and args.force_lzx:
-        print(Fore.RED + "Error: Cannot disable and force LZX compression at the same time." + Style.RESET_ALL)
-        sys.exit(1)
-
-    interactive_launch = len(sys.argv) == 1
-
+def _prepare_arguments(argv: Sequence[str]) -> tuple[argparse.Namespace, bool]:
+    args = build_parser().parse_args(argv)
+    if args.min_savings is None:
+        args.min_savings = config.DEFAULT_MIN_SAVINGS_PERCENT
+    else:
+        args.min_savings = config.clamp_savings_percent(args.min_savings)
+    interactive_launch = len(argv) == 0
     if interactive_launch:
         args = interactive_configure(args)
+        args.min_savings = config.clamp_savings_percent(args.min_savings)
+    return args, interactive_launch
 
-    setup_logging(args.verbose)
 
-    if args.verbose:
-        verbose_labels = {
-            1: "Verbosity level 1: cache decisions and summary stats",
-            2: "Verbosity level 2: include stage-level progress",
-            3: "Verbosity level 3: extended diagnostics for skipped files",
-        }
-        label = verbose_labels.get(args.verbose, "Verbosity level 4: full debug logging enabled")
-        print(Fore.BLUE + label + Style.RESET_ALL)
+def _validate_modes(args: argparse.Namespace) -> bool:
+    if args.no_lzx and args.force_lzx:
+        print(Fore.RED + "Error: Cannot disable and force LZX compression at the same time." + Style.RESET_ALL)
+        return False
+    return True
 
-    set_worker_cap(1 if args.single_worker else None)
+
+def _emit_verbosity_banner(level: int) -> None:
+    if not level:
+        return
+    verbose_labels = {
+        1: "Verbosity level 1: cache decisions and summary stats",
+        2: "Verbosity level 2: include stage-level progress",
+        3: "Verbosity level 3: extended diagnostics for skipped files",
+    }
+    label = verbose_labels.get(level, "Verbosity level 4: full debug logging enabled")
+    print(Fore.BLUE + label + Style.RESET_ALL)
+
+
+def _configure_runtime(args: argparse.Namespace, interactive_launch: bool) -> Optional[str]:
+    set_worker_cap(1 if getattr(args, "single_worker", False) else None)
 
     if not is_admin():
         logging.error("This script requires administrator privileges")
-        prompt_exit()
-        return
+        return None
 
     physical_cores, logical_cores = get_cpu_info()
     announce_mode(args)
@@ -213,26 +230,52 @@ def main() -> None:
         logical=logical_cores,
     )
 
-    directory, args = acquire_directory(args, interactive_launch)
+    directory, updated_args = acquire_directory(args, interactive_launch)
     args.directory = directory
+    for key, value in vars(updated_args).items():
+        setattr(args, key, value)
 
-    # Guard against targeting protected system directories before proceeding with compression
     protection_reason = describe_protected_path(directory)
     if protection_reason:
         logging.error("Cannot compress protected path: %s", protection_reason)
         if 'Windows' in protection_reason:
             logging.error("To compress Windows system files, use 'compact.exe /compactos:always' instead")
-        prompt_exit()
-        return
+        return None
 
     if not confirm_hdd_usage(directory, force_serial=args.single_worker):
+        return None
+
+    return directory
+
+
+def main() -> None:
+    init(autoreset=True)
+    display_banner(VERSION, BUILD_DATE)
+
+    args, interactive_launch = _prepare_arguments(sys.argv[1:])
+
+    if not _validate_modes(args):
+        prompt_exit()
+        sys.exit(1)
+
+    setup_logging(args.verbose)
+
+    _emit_verbosity_banner(args.verbose)
+
+    directory = _configure_runtime(args, interactive_launch)
+    if directory is None:
         prompt_exit()
         return
 
     if args.brand_files:
         run_branding(directory, thorough=args.thorough)
     else:
-        run_compression(directory, verbosity=args.verbose, thorough=args.thorough)
+        run_compression(
+            directory,
+            verbosity=args.verbose,
+            thorough=args.thorough,
+            min_savings=args.min_savings,
+        )
 
     print("\nOperation completed.")
     prompt_exit()

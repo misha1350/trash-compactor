@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-10-10
+### Added
+- `--min-savings` CLI flag and interactive control to configure the minimum percentage a directory must save before compression runs
+- Estimated savings are now recorded in skip statistics and surfaced in verbose mode so you can review why directories were skipped
+- Additional verbose and debug messaging around entropy sampling helps validate cache avoidance decisions in real time
+
+### Changed
+- Entropy sampling now runs for every directory, expanding the sample window to deliver consistent savings estimates before deciding to compress
+- Verbosity level guidance and summaries report savings and entropy figures in percentages instead of raw bit counts for easier interpretation
+- Interactive launcher preserves the configured savings threshold between adjustments and final execution
+
+### Fixed
+- Corrected an issue where high-entropy directories could slip through when cache heuristics failed, ensuring low-yield media folders stay skipped by default
+
 ## [0.3.2] - 2025-10-08
 ### Added
 - `-s/--single-worker` flag (and interactive toggle) to run compression sequentially when fragile storage needs a gentler touch

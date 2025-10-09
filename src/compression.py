@@ -1,4 +1,3 @@
-import ctypes
 import logging
 import math
 import os
@@ -24,9 +23,13 @@ except ImportError:  # pragma: no cover - colour output is optional
 
 from .config import (
     COMPRESSION_ALGORITHMS,
+    DEFAULT_MIN_SAVINGS_PERCENT,
     MIN_COMPRESSIBLE_SIZE,
     SKIP_EXTENSIONS,
+    clamp_savings_percent,
+    entropy_from_savings,
     get_cpu_info,
+    savings_from_entropy,
 )
 from .file_utils import get_size_category, is_file_compressed, should_compress_file, should_skip_directory
 from .stats import CompressionStats, DirectorySkipRecord, LegacyCompressionStats, Spinner
@@ -153,9 +156,9 @@ def _shannon_entropy(sample: bytes) -> float:
 
 def _sample_directory_entropy(
     path: Path,
-    max_files: int = 24,
+    max_files: int = 48, # crucial - 48 files are read to decide whether to skip the directory or not
     chunk_size: int = 65536,
-    max_bytes: int = 4 * 1024 * 1024,
+    max_bytes: int = 8 * 1024 * 1024,
 ) -> tuple[Optional[float], int, int]:
     pending = deque([path])
     sampled_files = 0
@@ -212,8 +215,11 @@ def _evaluate_cache_directory(directory: Path, base_dir: Path, collect_entropy: 
     average_entropy = None
     sampled_files = 0
     sampled_bytes = 0
+    estimated_savings: Optional[float] = None
     if collect_entropy:
         average_entropy, sampled_files, sampled_bytes = _sample_directory_entropy(directory)
+        if average_entropy is not None:
+            estimated_savings = savings_from_entropy(average_entropy)
 
     return DirectorySkipRecord(
         path=str(directory),
@@ -221,19 +227,74 @@ def _evaluate_cache_directory(directory: Path, base_dir: Path, collect_entropy: 
         reason=reason,
         category='cache',
         average_entropy=average_entropy,
+        estimated_savings=estimated_savings,
         sampled_files=sampled_files,
         sampled_bytes=sampled_bytes,
     )
 
 
-def _maybe_skip_directory(directory: Path, base_dir: Path, stats: CompressionStats, collect_entropy: bool) -> bool:
-    skip, reason = should_skip_directory(directory)
-    if skip:
+def _evaluate_entropy_directory(
+    directory: Path,
+    base_dir: Path,
+    collect_entropy: bool,
+    min_savings_percent: float,
+) -> Optional[DirectorySkipRecord]:
+    if not collect_entropy:
+        return None
+
+    average_entropy, sampled_files, sampled_bytes = _sample_directory_entropy(directory)
+    if average_entropy is None or sampled_files == 0 or sampled_bytes < 1024:
+        return None
+
+    estimated_savings = savings_from_entropy(average_entropy)
+
+    logging.debug(
+        "Entropy sample for %s: %.2f bits/byte (~%.1f%% savings) across %s files (%s bytes)",
+        directory,
+        average_entropy,
+        estimated_savings,
+        sampled_files,
+        sampled_bytes,
+    )
+
+    if estimated_savings >= min_savings_percent:
+        return None
+
+    logging.info(
+        "Skipping directory %s; estimated savings %.1f%% is below threshold %.1f%%",
+        directory,
+        estimated_savings,
+        min_savings_percent,
+    )
+
+    reason = f"High entropy (est. {estimated_savings:.1f}% savings)"
+    return DirectorySkipRecord(
+        path=str(directory),
+        relative_path=_relative_to_base(directory, base_dir),
+        reason=reason,
+        category='high_entropy',
+        average_entropy=average_entropy,
+        estimated_savings=estimated_savings,
+        sampled_files=sampled_files,
+        sampled_bytes=sampled_bytes,
+    )
+
+
+def _maybe_skip_directory(
+    directory: Path,
+    base_dir: Path,
+    stats: CompressionStats,
+    collect_entropy: bool,
+    min_savings_percent: float,
+) -> bool:
+    decision = should_skip_directory(directory)
+    if decision.skip:
+        reason = decision.reason or "Excluded system directory"
         stats.directory_skips.append(
             DirectorySkipRecord(
                 path=str(directory),
                 relative_path=_relative_to_base(directory, base_dir),
-                reason=reason or "Excluded system directory",
+                reason=reason,
                 category='system',
             )
         )
@@ -246,28 +307,63 @@ def _maybe_skip_directory(directory: Path, base_dir: Path, stats: CompressionSta
         logging.debug("Skipping cache directory %s: %s", directory, cache_record.reason)
         return True
 
+    entropy_record = _evaluate_entropy_directory(directory, base_dir, collect_entropy, min_savings_percent)
+    if entropy_record:
+        stats.directory_skips.append(entropy_record)
+        logging.debug("Skipping high entropy directory %s: %s", directory, entropy_record.reason)
+        return True
+
     return False
 
 
-def _log_directory_skips(stats: CompressionStats, verbosity: int) -> None:
+def _log_directory_skips(stats: CompressionStats, verbosity: int, min_savings_percent: float) -> None:
     if verbosity < 1:
         return
 
-    cache_records = [record for record in stats.directory_skips if record.category == 'cache']
-    if not cache_records:
+    buckets: dict[str, list[DirectorySkipRecord]] = {}
+    for record in stats.directory_skips:
+        buckets.setdefault(record.category, []).append(record)
+
+    if not buckets:
         return
 
-    logging.info("Skipped %s cache directories (entropy in bits/byte):", len(cache_records))
-    for record in cache_records:
-        if record.average_entropy is not None:
+    if 'cache' in buckets:
+        cache_records = buckets['cache']
+        logging.info("Skipped %s cache directories:", len(cache_records))
+        for record in cache_records:
+            if record.average_entropy is not None and record.estimated_savings is not None:
+                logging.info(
+                    " - %s - %s (~%.1f%% savings, entropy %.2f, %s files)",
+                    record.relative_path,
+                    record.reason,
+                    record.estimated_savings,
+                    record.average_entropy,
+                    record.sampled_files,
+                )
+            else:
+                logging.info(" - %s - %s", record.relative_path, record.reason)
+
+    if 'high_entropy' in buckets:
+        entropy_records = buckets['high_entropy']
+        logging.info(
+            "Skipped %s directories due to low expected savings (<%.1f%%):",
+            len(entropy_records),
+            min_savings_percent,
+        )
+        for record in entropy_records:
             logging.info(
-                " - %s - %s (entropy %.2f across %s files)",
+                " - %s - %s (~%.1f%% savings, entropy %.2f, %s files)",
                 record.relative_path,
                 record.reason,
-                record.average_entropy,
+                record.estimated_savings if record.estimated_savings is not None else 0.0,
+                record.average_entropy if record.average_entropy is not None else 0.0,
                 record.sampled_files,
             )
-        else:
+
+    if verbosity >= 4 and 'system' in buckets:
+        system_records = buckets['system']
+        logging.info("Skipped %s protected directories:", len(system_records))
+        for record in system_records:
             logging.info(" - %s - %s", record.relative_path, record.reason)
 
 
@@ -310,20 +406,27 @@ def legacy_compress_file(file_path: Path) -> bool:
         return False
 
 
-def compress_directory(directory_path: str, verbosity: int = 0, thorough_check: bool = False) -> tuple[CompressionStats, PerformanceMonitor]:
+def compress_directory(
+    directory_path: str,
+    verbosity: int = 0,
+    thorough_check: bool = False,
+    min_savings_percent: float = DEFAULT_MIN_SAVINGS_PERCENT,
+) -> tuple[CompressionStats, PerformanceMonitor]:
     stats = CompressionStats()
     monitor = PerformanceMonitor()
     monitor.start_operation()
+
+    min_savings_percent = clamp_savings_percent(min_savings_percent)
 
     base_dir = Path(directory_path).resolve()
     if thorough_check:
         logging.info("Using thorough checking mode - this will be slower but more accurate for previously compressed files")
 
-    all_files = list(_iter_files(base_dir, stats, verbosity))
+    all_files = list(_iter_files(base_dir, stats, verbosity, min_savings_percent))
     total_files = len(all_files)
     monitor.stats.total_files = total_files
 
-    _log_directory_skips(stats, verbosity)
+    _log_directory_skips(stats, verbosity, min_savings_percent)
 
     debug_output = verbosity >= 4
     spinner_enabled = verbosity == 0
@@ -357,14 +460,16 @@ def compress_directory(directory_path: str, verbosity: int = 0, thorough_check: 
     return stats, monitor
 
 
-def _iter_files(root: Path, stats: CompressionStats, verbosity: int) -> Iterator[Path]:
-    collect_entropy = verbosity >= 1
+def _iter_files(root: Path, stats: CompressionStats, verbosity: int, min_savings_percent: float) -> Iterator[Path]:
+    collect_entropy = True
+    if _maybe_skip_directory(root, root, stats, collect_entropy, min_savings_percent):
+        return
     for current_root, dirnames, files in os.walk(root):
         current_base = Path(current_root)
 
         for index in range(len(dirnames) - 1, -1, -1):
             candidate = current_base / dirnames[index]
-            if _maybe_skip_directory(candidate, root, stats, collect_entropy):
+            if _maybe_skip_directory(candidate, root, stats, collect_entropy, min_savings_percent):
                 del dirnames[index]
 
         for name in files:
@@ -385,18 +490,19 @@ def _plan_compression(
             if spinner and not debug_output:
                 spinner.update(index)
             try:
-                should_compress, reason, current_size = should_compress_file(file_path, thorough_check)
+                decision = should_compress_file(file_path, thorough_check)
                 file_size = file_path.stat().st_size
                 stats.total_original_size += file_size
 
-                if should_compress:
+                if decision.should_compress:
                     algorithm = COMPRESSION_ALGORITHMS[get_size_category(file_size)]
                     candidates.append((file_path, file_size, algorithm))
                 else:
                     stats.skipped_files += 1
-                    resolved_size = current_size if current_size else file_size
+                    resolved_size = decision.size_hint or file_size
                     stats.total_compressed_size += resolved_size
                     stats.total_skipped_size += file_size
+                    reason = decision.reason
                     if "already compressed" in reason.lower():
                         stats.already_compressed_files += 1
                     logging.debug("Skipping %s: %s", file_path, reason)
@@ -444,6 +550,8 @@ def _execute_plan(
     if not total:
         return
 
+    stats_lock = threading.Lock()
+
     def _chunk(entries: Sequence[tuple[Path, int]], size: int) -> list[list[tuple[Path, int]]]:
         batches: list[list[tuple[Path, int]]] = []
         current: list[tuple[Path, int]] = []
@@ -468,9 +576,14 @@ def _execute_plan(
         quoted = " ".join(f'"{path.resolve()}"' for path in paths)
         return _run_compact(f'compact /c /a /exe:{algo} {quoted}')
 
+    def _record_error(message: str) -> None:
+        with stats_lock:
+            stats.errors.append(message)
+
     def _record_success(path: Path, compressed_size: int, algo: str, verified: bool) -> None:
-        stats.compressed_files += 1
-        stats.total_compressed_size += compressed_size
+        with stats_lock:
+            stats.compressed_files += 1
+            stats.total_compressed_size += compressed_size
         if verified:
             logging.debug("Compressed %s using %s", path, algo)
         else:
@@ -481,9 +594,10 @@ def _execute_plan(
             )
 
     def _record_failure(path: Path, file_size: int, algo: str, reason: Optional[str] = None) -> None:
-        stats.skipped_files += 1
-        stats.total_compressed_size += file_size
-        stats.total_skipped_size += file_size
+        with stats_lock:
+            stats.skipped_files += 1
+            stats.total_compressed_size += file_size
+            stats.total_skipped_size += file_size
         if reason:
             logging.debug("Compression skipped for %s using %s: %s", path, algo, reason)
         else:
@@ -493,7 +607,7 @@ def _execute_plan(
         try:
             verified, compressed_size = is_file_compressed(path, thorough_check=False)
         except Exception as exc:  # pragma: no cover - defensive
-            stats.errors.append(f"Error verifying {path}: {exc}")
+            _record_error(f"Error verifying {path}: {exc}")
             logging.error("Error verifying %s after %s compression: %s", path, context, exc)
             _record_success(path, fallback_size, algo, verified=False)
         else:
@@ -549,7 +663,7 @@ def _execute_plan(
                         exc,
                     )
                     for path, file_size in batch:
-                        stats.errors.append(f"Batch exception for {path}: {exc}")
+                        _record_error(f"Batch exception for {path}: {exc}")
                         _compress_single(path, file_size, algo)
                         _advance(1)
                     continue

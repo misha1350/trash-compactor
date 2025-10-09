@@ -84,6 +84,7 @@ class DirectorySkipRecord:
     reason: str
     category: str
     average_entropy: Optional[float] = None
+    estimated_savings: Optional[float] = None
     sampled_files: int = 0
     sampled_bytes: int = 0
 
