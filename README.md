@@ -70,7 +70,6 @@ Be aware that temporarily disabling the anti-virus or whitelisting this program 
 
 #### Thorough Mode (-t)
 For daily or scheduled compression tasks on directories that have already been compressed. Uses more intensive checking to accurately identify compressed files and avoid reprocessing (because Windows doesn't have reliable and fast methods to check if some files have been compressed before).
-Be aware that this mode heavily uses the fastest CPU core in your system, so systems with bad cooling or hot Intel CPUs may run hot.
 ```powershell
 .\trash-compactor.exe -t C:\path\to\compress
 ```
@@ -80,6 +79,10 @@ For ensuring proper marking of files as compressed in Windows. Run this after in
 ```powershell
 .\trash-compactor.exe -b C:\path\to\compress
 ```
+
+#### Disabling (-x) or Forcing (-f) LZX Compression
+LZX compression is turned **on** for large files by default.
+LZX compression is resource-intensive and may impact performance a bit more, though it does result in better compression of both compressible binaries and the files that XPRESS16K doesn't compress well. But if you have a computer that was build or made before AD 2021, or if battery life is absolutely critical for you (a big problem on Intel Coffee Lake laptops), you may want to disable it the older your computer is.
 
 ### Recommended Workflow for Scheduled Compression
 
@@ -138,18 +141,16 @@ To contribute to this project:
   - Cache results per file type
   - Add file type detection beyond extensions, i.e. based on file content
     - Compress easily compressable files (based on the extension first), then decide what to do with potentially problematic files later
-- Quality of Life features:
-  - More coloured output
-  - Saving user configuration with an optional `.ini` file
-  - Add resume capability for interrupted operations
-  - Add option to generate detailed reports in various formats
-- Localization support depending on system language
 - Research advanced compression methods:
   - Evaluate alternative NTFS compression APIs, like [UPX](https://github.com/upx/upx)
   - Consider filesystem-agnostic approaches (moving compressed files in/out of the source drive unpacks them)
   - Benchmark different compression strategies
   - Research possibilities for custom compression algorithms
   - Investigate integration with other Windows compression features
+- Quality of Life features:
+  - Saving user configuration with an optional `.ini` file
+  - Add resume capability for interrupted operations
+- Localization support depending on system language
 - Security and Reliability:
   - Implement proper error handling for network paths
   - Add verification of filesystem compatibility
