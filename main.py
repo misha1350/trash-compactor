@@ -19,7 +19,7 @@ from src.console import display_banner, prompt_exit
 from src.launch import acquire_directory, interactive_configure
 from src.runtime import confirm_hdd_usage, configure_lzx, describe_protected_path, is_admin
 
-VERSION = "0.4.0-alpha"
+VERSION = "0.4.0-beta2"
 BUILD_DATE = "who cares"
 
 
@@ -114,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Throttle compression to a single worker to reduce disk fragmentation",
     )
     parser.add_argument(
+        "-m",
         "--min-savings",
         type=float,
         default=None,
