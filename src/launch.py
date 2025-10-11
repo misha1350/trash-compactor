@@ -16,6 +16,7 @@ FLAG_METADATA: dict[str, tuple[str, str]] = {
     'force_lzx': ('-f', 'Force LZX compression'),
     'thorough': ('-t', 'Thorough checking mode'),
     'brand_files': ('-b', 'Branding mode'),
+    'dry_run': ('-d', 'Dry-run entropy analysis'),
     'single_worker': ('-s', 'Throttle for HDDs'),
     'min_savings': (
         '-m/--min-savings=<percent>',
@@ -28,6 +29,7 @@ SHORT_FLAG_KEYS: dict[str, str] = {
     'f': 'force_lzx',
     't': 'thorough',
     'b': 'brand_files',
+    'd': 'dry_run',
     's': 'single_worker',
 }
 
@@ -39,6 +41,7 @@ LONG_FLAG_KEYS: dict[str, str] = {
     'force-lzx': 'force_lzx',
     'thorough': 'thorough',
     'brand-files': 'brand_files',
+    'dry-run': 'dry_run',
     'single-worker': 'single_worker',
     'min-savings': 'min_savings',
 }
@@ -49,6 +52,7 @@ _FLAG_HELP_COMMANDS: set[str] = {'f', 'flags'}
 _MUTUALLY_EXCLUSIVE: tuple[tuple[str, str], ...] = (
     ('thorough', 'brand_files'),
     ('no_lzx', 'force_lzx'),
+    ('dry_run', 'brand_files'),
 )
 
 
@@ -60,6 +64,7 @@ class LaunchState:
     force_lzx: bool = False
     thorough: bool = False
     brand_files: bool = False
+    dry_run: bool = False
     single_worker: bool = False
     min_savings: float = config.DEFAULT_MIN_SAVINGS_PERCENT
 
@@ -332,6 +337,7 @@ def _apply_state_to_args(args: Namespace, state: LaunchState) -> Namespace:
     args.force_lzx = state.force_lzx
     args.thorough = state.thorough
     args.brand_files = state.brand_files
+    setattr(args, 'dry_run', state.dry_run)
     args.single_worker = state.single_worker
     args.min_savings = config.clamp_savings_percent(state.min_savings)
     return args
@@ -345,6 +351,7 @@ def interactive_configure(args: Namespace) -> Namespace:
         force_lzx=args.force_lzx,
         thorough=args.thorough,
         brand_files=args.brand_files,
+        dry_run=getattr(args, 'dry_run', False),
         single_worker=getattr(args, 'single_worker', False),
         min_savings=config.clamp_savings_percent(getattr(args, 'min_savings', config.DEFAULT_MIN_SAVINGS_PERCENT)),
     )

@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Optional
 
 
@@ -90,6 +91,23 @@ class DirectorySkipRecord:
 
 
 @dataclass
+class EntropySampleRecord:
+    path: str
+    relative_path: str
+    average_entropy: float
+    estimated_savings: float
+    sampled_files: int
+    sampled_bytes: int
+
+
+@dataclass
+class FileSkipRecord:
+    path: str
+    relative_path: str
+    reason: str
+
+
+@dataclass
 class CompressionStats:
     compressed_files: int = 0
     skipped_files: int = 0
@@ -99,6 +117,49 @@ class CompressionStats:
     total_skipped_size: int = 0
     errors: List[str] = field(default_factory=list)
     directory_skips: List[DirectorySkipRecord] = field(default_factory=list)
+    entropy_samples: List[EntropySampleRecord] = field(default_factory=list)
+    file_skips: List[FileSkipRecord] = field(default_factory=list)
+    base_dir: Optional[Path] = None
+
+    def set_base_dir(self, base_dir: Path) -> None:
+        self.base_dir = base_dir
+
+    def record_file_skip(
+        self,
+        file_path: Path,
+        reason: str,
+        size_hint: int,
+        original_size: int,
+        *,
+        already_compressed: bool = False,
+    ) -> None:
+        resolved_hint = size_hint if size_hint > 0 else original_size
+        self.skipped_files += 1
+        if resolved_hint > 0:
+            self.total_compressed_size += resolved_hint
+        if original_size > 0:
+            self.total_skipped_size += original_size
+        if already_compressed:
+            self.already_compressed_files += 1
+
+        relative = str(file_path)
+        base = self.base_dir
+        if base is not None:
+            try:
+                relative = str(file_path.relative_to(base))
+            except ValueError:
+                try:
+                    relative = str(file_path.resolve().relative_to(base))
+                except Exception:
+                    relative = str(file_path)
+
+        self.file_skips.append(
+            FileSkipRecord(
+                path=str(file_path),
+                relative_path=relative,
+                reason=reason,
+            )
+        )
 
 
 @dataclass
@@ -107,6 +168,43 @@ class LegacyCompressionStats:
     branded_files: int = 0
     still_unmarked: int = 0
     errors: List[str] = field(default_factory=list)
+
+
+def _format_sample_bytes(value: int) -> str:
+    if value >= 1024 * 1024:
+        return f"{value / (1024 * 1024):.1f} MB"
+    if value >= 1024:
+        return f"{value / 1024:.1f} KB"
+    if value > 0:
+        return f"{value} B"
+    return "0 B"
+
+
+def print_entropy_dry_run(stats: CompressionStats, min_savings_percent: float) -> None:
+    logging.info("\nEntropy Dry Run Summary")
+    logging.info("-----------------------")
+
+    samples = sorted(stats.entropy_samples, key=lambda record: record.estimated_savings, reverse=True)
+    if not samples:
+        logging.info("No eligible directories were analysed.")
+        return
+
+    logging.info("Minimum savings threshold: %.1f%%", min_savings_percent)
+    logging.info("Analysed %s directories.", len(samples))
+    logging.info("Directories ordered by projected savings:")
+
+    for index, record in enumerate(samples, start=1):
+        status_note = " [below threshold]" if record.estimated_savings < min_savings_percent else ""
+        logging.info(
+            " %2d. %s (~%.1f%% savings, entropy %.2f, %s files, %s sampled)%s",
+            index,
+            record.relative_path,
+            record.estimated_savings,
+            record.average_entropy,
+            record.sampled_files,
+            _format_sample_bytes(record.sampled_bytes),
+            status_note,
+        )
 
 
 def print_compression_summary(stats: CompressionStats) -> None:
@@ -138,3 +236,9 @@ def print_compression_summary(stats: CompressionStats) -> None:
         logging.info("\nErrors encountered:")
         for error in stats.errors:
             logging.error(error)
+
+    # if stats.file_skips:
+    #     logging.info("\nSkipped files detail:")
+    #     for record in stats.file_skips:
+    #         logging.info(" - %s: %s", record.relative_path, record.reason)
+

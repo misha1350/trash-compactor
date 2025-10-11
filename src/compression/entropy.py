@@ -24,9 +24,11 @@ def sample_directory_entropy(
     max_files: int = 48,
     chunk_size: int = 65536,
     max_bytes: int = 8 * 1024 * 1024,
+    *,
+    skip_root_files: bool = False,
 ) -> tuple[Optional[float], int, int]:
-    """Sample files in directory for average entropy."""
     pending = deque([path])
+    root = path
     sampled_files = 0
     sampled_bytes = 0
     weighted_entropy = 0.0
@@ -42,6 +44,9 @@ def sample_directory_entropy(
         for entry in entries:
             if entry.is_dir():
                 pending.append(entry)
+                continue
+
+            if skip_root_files and current == root:
                 continue
 
             try:

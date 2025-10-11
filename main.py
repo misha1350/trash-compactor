@@ -11,13 +11,16 @@ from src import (
     compress_directory,
     compress_directory_legacy,
     config,
+    entropy_dry_run,
     get_cpu_info,
     print_compression_summary,
+    print_entropy_dry_run,
     set_worker_cap,
 )
 from src.console import display_banner, prompt_exit
 from src.launch import acquire_directory, interactive_configure
 from src.runtime import confirm_hdd_usage, configure_lzx, describe_protected_path, is_admin
+from src.skip_logic import log_directory_skips
 
 VERSION = "0.4.0-beta2"
 BUILD_DATE = "who cares"
@@ -114,6 +117,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Throttle compression to a single worker to reduce disk fragmentation",
     )
     parser.add_argument(
+        "-d",
+        "--dry-run",
+        action="store_true",
+        help="Analyse directory entropy without compressing files",
+    )
+    parser.add_argument(
         "-m",
         "--min-savings",
         type=float,
@@ -139,6 +148,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def announce_mode(args: argparse.Namespace) -> None:
     notices: list[str] = []
+    if getattr(args, "dry_run", False):
+        notices.append("Dry run: analyse entropy without compressing files.")
     if args.brand_files:
         notices.append("Branding mode: ensure Windows records compressed attributes after the initial pass.")
     elif args.thorough:
@@ -181,6 +192,17 @@ def run_compression(directory: str, verbosity: int, thorough: bool, min_savings:
     monitor.print_summary()
 
 
+def run_entropy_dry_run(directory: str, verbosity: int, min_savings: float) -> None:
+    logging.info("Starting entropy dry run for directory: %s", directory)
+    stats = entropy_dry_run(
+        directory,
+        verbosity=verbosity,
+        min_savings_percent=min_savings,
+    )
+    print_entropy_dry_run(stats, min_savings)
+    log_directory_skips(stats, verbosity, min_savings)
+
+
 def _prepare_arguments(argv: Sequence[str]) -> tuple[argparse.Namespace, bool]:
     args = build_parser().parse_args(argv)
     if args.min_savings is None:
@@ -197,6 +219,9 @@ def _prepare_arguments(argv: Sequence[str]) -> tuple[argparse.Namespace, bool]:
 def _validate_modes(args: argparse.Namespace) -> bool:
     if args.no_lzx and args.force_lzx:
         print(Fore.RED + "Error: Cannot disable and force LZX compression at the same time." + Style.RESET_ALL)
+        return False
+    if getattr(args, "dry_run", False) and args.brand_files:
+        print(Fore.RED + "Error: Cannot combine dry-run mode with branding." + Style.RESET_ALL)
         return False
     return True
 
@@ -268,7 +293,13 @@ def main() -> None:
         prompt_exit()
         return
 
-    if args.brand_files:
+    if getattr(args, "dry_run", False):
+        run_entropy_dry_run(
+            directory,
+            verbosity=args.verbose,
+            min_savings=args.min_savings,
+        )
+    elif args.brand_files:
         run_branding(directory, thorough=args.thorough)
     else:
         run_compression(

@@ -1,11 +1,13 @@
 import os
+from collections import deque
 from pathlib import Path
 
 from .compression.compression_executor import execute_compression_plan, legacy_compress_file
 from .compression.compression_planner import iter_files, plan_compression
-from .config import DEFAULT_MIN_SAVINGS_PERCENT, clamp_savings_percent
-from .skip_logic import log_directory_skips
-from .stats import CompressionStats, LegacyCompressionStats
+from .compression.entropy import sample_directory_entropy
+from .config import DEFAULT_MIN_SAVINGS_PERCENT, clamp_savings_percent, savings_from_entropy
+from .skip_logic import log_directory_skips, maybe_skip_directory
+from .stats import CompressionStats, EntropySampleRecord, LegacyCompressionStats
 from .timer import PerformanceMonitor
 from .workers import lzx_worker_count, set_worker_cap, xp_worker_count
 
@@ -25,23 +27,35 @@ def compress_directory(
     min_savings_percent = clamp_savings_percent(min_savings_percent)
 
     base_dir = Path(directory_path).resolve()
+    stats.set_base_dir(base_dir)
     if thorough_check:
         logging.info("Using thorough checking mode - this will be slower but more accurate for previously compressed files")
 
-    all_files = list(iter_files(base_dir, stats, verbosity, min_savings_percent))
+    all_files = list(iter_files(base_dir, stats, verbosity, min_savings_percent, collect_entropy=False))
     total_files = len(all_files)
     monitor.stats.total_files = total_files
 
+    plan: list[tuple[Path, int, str]] = []
+    if all_files:
+        plan = plan_compression(
+            all_files,
+            stats,
+            monitor,
+            thorough_check,
+            base_dir=base_dir,
+            min_savings_percent=min_savings_percent,
+            verbosity=verbosity,
+        )
+
     log_directory_skips(stats, verbosity, min_savings_percent)
 
-    if all_files:
-        plan = plan_compression(all_files, stats, monitor, thorough_check)
-        if plan:
-            xp_workers = xp_worker_count()
-            lzx_workers = lzx_worker_count()
-            execute_compression_plan(plan, stats, monitor, verbosity >= 4, xp_workers, lzx_workers)
+    if plan:
+        xp_workers = xp_worker_count()
+        lzx_workers = lzx_worker_count()
+        execute_compression_plan(plan, stats, monitor, verbosity >= 4, xp_workers, lzx_workers)
 
     monitor.stats.files_compressed = stats.compressed_files
+    monitor.stats.files_skipped = stats.skipped_files
     monitor.end_operation()
     return stats, monitor
 
@@ -107,6 +121,112 @@ def compress_directory_legacy(directory_path: str, thorough_check: bool = False)
     if stats.still_unmarked:
         print(f"Warning: {stats.still_unmarked} files could not be properly marked as compressed.")
 
+    return stats
+
+
+def _relative_path(path: Path, base_dir: Path) -> str:
+    try:
+        return str(path.relative_to(base_dir))
+    except ValueError:
+        try:
+            return str(path.resolve().relative_to(base_dir))
+        except Exception:
+            return str(path)
+
+
+def entropy_dry_run(
+    directory_path: str,
+    *,
+    verbosity: int = 0,
+    min_savings_percent: float = DEFAULT_MIN_SAVINGS_PERCENT,
+) -> CompressionStats:
+    import logging
+
+    stats = CompressionStats()
+    min_savings_percent = clamp_savings_percent(min_savings_percent)
+    base_dir = Path(directory_path).resolve()
+    stats.set_base_dir(base_dir)
+
+    root_decision = maybe_skip_directory(
+        base_dir,
+        base_dir,
+        stats,
+        collect_entropy=False,
+        min_savings_percent=min_savings_percent,
+        verbosity=verbosity,
+    )
+    if root_decision.skip:
+        logging.warning(
+            "Dry run aborted: base directory %s is excluded (%s)",
+            base_dir,
+            root_decision.reason or "excluded",
+        )
+        return stats
+
+    pending = deque([base_dir])
+    visited: set[Path] = set()
+
+    while pending:
+        current = pending.popleft()
+        try:
+            marker = current.resolve()
+        except OSError:
+            marker = current
+        if marker in visited:
+            continue
+        visited.add(marker)
+
+        try:
+            entries = sorted(current.iterdir(), key=lambda entry: entry.name.casefold())
+        except OSError as exc:
+            logging.debug("Unable to inspect %s during dry run: %s", current, exc)
+            continue
+
+        for entry in entries:
+            if not entry.is_dir():
+                continue
+            decision = maybe_skip_directory(
+                entry,
+                base_dir,
+                stats,
+                collect_entropy=False,
+                min_savings_percent=min_savings_percent,
+                verbosity=verbosity,
+            )
+            if decision.skip:
+                continue
+            pending.append(entry)
+
+        if current == base_dir:
+            continue
+
+        average_entropy, sampled_files, sampled_bytes = sample_directory_entropy(current)
+        if average_entropy is None or sampled_files == 0 or sampled_bytes == 0:
+            continue
+
+        estimated_savings = savings_from_entropy(average_entropy)
+        stats.entropy_samples.append(
+            EntropySampleRecord(
+                path=str(current),
+                relative_path=_relative_path(current, base_dir),
+                average_entropy=average_entropy,
+                estimated_savings=estimated_savings,
+                sampled_files=sampled_files,
+                sampled_bytes=sampled_bytes,
+            )
+        )
+
+        if verbosity >= 4:
+            logging.debug(
+                "Dry run sample %s: entropy %.2f (~%.1f%% savings) from %s files (%s bytes)",
+                current,
+                average_entropy,
+                estimated_savings,
+                sampled_files,
+                sampled_bytes,
+            )
+
+    stats.entropy_samples.sort(key=lambda record: record.estimated_savings, reverse=True)
     return stats
 
 

@@ -107,9 +107,7 @@ def execute_compression_plan(
 
     def _record_failure(path: Path, file_size: int, algo: str, reason: Optional[str] = None) -> None:
         with stats_lock:
-            stats.skipped_files += 1
-            stats.total_compressed_size += file_size
-            stats.total_skipped_size += file_size
+            stats.record_file_skip(path, reason or "Compression failed", file_size, file_size)
         if reason:
             logging.debug("Compression skipped for %s using %s: %s", path, algo, reason)
         else:

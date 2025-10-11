@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .config import clamp_savings_percent, entropy_from_savings, savings_from_entropy
+from .config import savings_from_entropy
 from .compression.entropy import sample_directory_entropy
 from .file_utils import DirectoryDecision, should_skip_directory
 from .stats import CompressionStats, DirectorySkipRecord
@@ -121,14 +121,13 @@ def _evaluate_cache_directory(directory: Path, base_dir: Path, collect_entropy: 
     )
 
 
-def _evaluate_entropy_directory(
+def evaluate_entropy_directory(
     directory: Path,
     base_dir: Path,
-    collect_entropy: bool,
     min_savings_percent: float,
     verbosity: int,
 ) -> Optional[DirectorySkipRecord]:
-    if not collect_entropy:
+    if directory == base_dir:
         return None
 
     average_entropy, sampled_files, sampled_bytes = sample_directory_entropy(directory)
@@ -187,32 +186,26 @@ def maybe_skip_directory(
             reason=reason,
             category='system',
         )
-        _append_skip_record(stats, record)
+        append_directory_skip_record(stats, record)
         return DirectoryDecision.deny(reason)
 
     cache_record = _evaluate_cache_directory(directory, base_dir, collect_entropy)
     if cache_record:
-        _append_skip_record(stats, cache_record)
+        append_directory_skip_record(stats, cache_record)
         return DirectoryDecision.deny(cache_record.reason)
 
     if not collect_entropy:
         return DirectoryDecision.allow_path()
 
-    entropy_record = _evaluate_entropy_directory(
-        directory,
-        base_dir,
-        collect_entropy,
-        min_savings_percent,
-        verbosity,
-    )
+    entropy_record = evaluate_entropy_directory(directory, base_dir, min_savings_percent, verbosity)
     if entropy_record:
-        _append_skip_record(stats, entropy_record)
+        append_directory_skip_record(stats, entropy_record)
         return DirectoryDecision.deny(entropy_record.reason)
 
     return DirectoryDecision.allow_path()
 
 
-def _append_skip_record(stats: CompressionStats, record: DirectorySkipRecord) -> None:
+def append_directory_skip_record(stats: CompressionStats, record: DirectorySkipRecord) -> None:
     stats.directory_skips.append(record)
     if record.category == 'system':
         logging.debug("Skipping system directory %s: %s", record.path, record.reason)
@@ -225,7 +218,7 @@ def _append_skip_record(stats: CompressionStats, record: DirectorySkipRecord) ->
 
 
 def log_directory_skips(stats: CompressionStats, verbosity: int, min_savings_percent: float) -> None:
-    if verbosity < 1:
+    if verbosity < 3:
         return
 
     buckets = {}
