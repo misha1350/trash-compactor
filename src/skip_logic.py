@@ -218,7 +218,7 @@ def append_directory_skip_record(stats: CompressionStats, record: DirectorySkipR
 
 
 def log_directory_skips(stats: CompressionStats, verbosity: int, min_savings_percent: float) -> None:
-    if verbosity < 3:
+    if verbosity < 2:
         return
 
     buckets = {}
@@ -228,7 +228,7 @@ def log_directory_skips(stats: CompressionStats, verbosity: int, min_savings_per
     if not buckets:
         return
 
-    if 'cache' in buckets:
+    if verbosity >= 3 and 'cache' in buckets:
         cache_records = buckets['cache']
         logging.info("Skipped %s cache directories:", len(cache_records))
         for record in cache_records:

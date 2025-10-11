@@ -53,14 +53,35 @@ class Spinner:
             time.sleep(0.2)
 
     def start(self, total: int = 0) -> None:
-        self.total = total
-        self._running = True
-        self._thread = threading.Thread(target=self._spin, daemon=True)
-        self._thread.start()
+        with self._lock:
+            if self._running:
+                self.total = max(0, total)
+                if self.total == 0:
+                    self.processed = 0
+                else:
+                    self.processed = min(self.processed, self.total)
+                return
+            self.total = max(0, total)
+            self.processed = 0
+            self._running = True
+            self._thread = threading.Thread(target=self._spin, daemon=True)
+            self._thread.start()
 
     def set_label(self, label: str) -> None:
         with self._lock:
             self._label = label
+
+    def set_total(self, total: int) -> None:
+        with self._lock:
+            self.total = max(0, total)
+            if self.total == 0:
+                self.processed = 0
+            else:
+                self.processed = min(self.processed, self.total)
+
+    def set_message(self, message: str) -> None:
+        with self._lock:
+            self._message = message
 
     def update(self, processed: int, current_file: Optional[str] = None) -> None:
         with self._lock:
@@ -72,6 +93,7 @@ class Spinner:
         self._running = False
         if self._thread:
             self._thread.join(timeout=1.0)
+            self._thread = None
         sys.stdout.write(f"\r{' ' * self._last_line_length}\r")
         if final_message:
             sys.stdout.write(final_message)
@@ -105,6 +127,7 @@ class FileSkipRecord:
     path: str
     relative_path: str
     reason: str
+    category: str = "generic"
 
 
 @dataclass
@@ -120,6 +143,11 @@ class CompressionStats:
     entropy_samples: List[EntropySampleRecord] = field(default_factory=list)
     file_skips: List[FileSkipRecord] = field(default_factory=list)
     base_dir: Optional[Path] = None
+    entropy_directories_sampled: int = 0
+    entropy_directories_below_threshold: int = 0
+    skip_extension_files: int = 0
+    skip_low_savings_files: int = 0
+    min_savings_percent: float = 0.0
 
     def set_base_dir(self, base_dir: Path) -> None:
         self.base_dir = base_dir
@@ -132,6 +160,7 @@ class CompressionStats:
         original_size: int,
         *,
         already_compressed: bool = False,
+        category: Optional[str] = None,
     ) -> None:
         resolved_hint = size_hint if size_hint > 0 else original_size
         self.skipped_files += 1
@@ -141,6 +170,12 @@ class CompressionStats:
             self.total_skipped_size += original_size
         if already_compressed:
             self.already_compressed_files += 1
+
+        resolved_category = self._classify_skip(reason, already_compressed, category)
+        if resolved_category == 'extension':
+            self.skip_extension_files += 1
+        elif resolved_category == 'high_entropy':
+            self.skip_low_savings_files += 1
 
         relative = str(file_path)
         base = self.base_dir
@@ -158,8 +193,27 @@ class CompressionStats:
                 path=str(file_path),
                 relative_path=relative,
                 reason=reason,
+                category=resolved_category,
             )
         )
+
+    def _classify_skip(
+        self,
+        reason: str,
+        already_compressed: bool,
+        category: Optional[str],
+    ) -> str:
+        if already_compressed:
+            return 'already_compressed'
+        if category:
+            return category
+
+        lowered = reason.lower()
+        if 'extension' in lowered:
+            return 'extension'
+        if 'high entropy' in lowered or 'savings' in lowered:
+            return 'high_entropy'
+        return 'generic'
 
 
 @dataclass
@@ -190,7 +244,12 @@ def print_entropy_dry_run(stats: CompressionStats, min_savings_percent: float) -
         return
 
     logging.info("Minimum savings threshold: %.1f%%", min_savings_percent)
-    logging.info("Analysed %s directories.", len(samples))
+    analysed = stats.entropy_directories_sampled or len(samples)
+    logging.info(
+        "Analysed %s directories (%s below threshold).",
+        analysed,
+        stats.entropy_directories_below_threshold,
+    )
     logging.info("Directories ordered by projected savings:")
 
     for index, record in enumerate(samples, start=1):
@@ -211,10 +270,19 @@ def print_compression_summary(stats: CompressionStats) -> None:
     logging.info("\nCompression Summary")
     logging.info("------------------")
     logging.info("Files compressed: %s", stats.compressed_files)
+    logging.info("Files skipped: %s", stats.skipped_files)
     logging.info(
-        "Files skipped: %s (of these, %s are already compressed)",
-        stats.skipped_files,
+        "     %s are compressed with Trash-Compactor",
         stats.already_compressed_files,
+    )
+    logging.info(
+        "     %s have compressed file types",
+        stats.skip_extension_files,
+    )
+    logging.info(
+        "     %s fall below %.1f%% projected savings",
+        stats.skip_low_savings_files,
+        stats.min_savings_percent,
     )
 
     if stats.compressed_files == 0:

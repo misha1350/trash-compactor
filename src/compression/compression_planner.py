@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Iterable, Iterator, Optional
+from typing import Callable, Iterable, Iterator, Optional
 
 from ..config import COMPRESSION_ALGORITHMS
 from ..file_utils import should_compress_file
@@ -61,10 +61,13 @@ def plan_compression(
     base_dir: Path,
     min_savings_percent: float,
     verbosity: int,
+    progress_callback: Optional[Callable[[Path, int, bool, Optional[str]], None]] = None,
 ) -> list[tuple[Path, int, str]]:
     candidates = []
     with monitor.time_file_scan():
+        processed = 0
         for file_path in files:
+            processed += 1
             try:
                 decision = should_compress_file(file_path, thorough_check)
                 file_size = file_path.stat().st_size
@@ -73,17 +76,26 @@ def plan_compression(
                 if decision.should_compress:
                     algorithm = COMPRESSION_ALGORITHMS[get_size_category(file_size)]
                     candidates.append((file_path, file_size, algorithm))
+                    if progress_callback:
+                        progress_callback(file_path, processed, True, None)
                 else:
                     reason = decision.reason
                     resolved_size = decision.size_hint or file_size
+                    category = None
+                    lowered = reason.lower()
+                    if 'extension' in lowered:
+                        category = 'extension'
                     stats.record_file_skip(
                         file_path,
                         reason,
                         resolved_size,
                         file_size,
                         already_compressed="already compressed" in reason.lower(),
+                        category=category,
                     )
                     logging.debug("Skipping %s: %s", file_path, reason)
+                    if progress_callback:
+                        progress_callback(file_path, processed, False, reason)
             except OSError as exc:
                 stats.errors.append(f"Error processing {file_path}: {exc}")
                 try:
@@ -95,8 +107,11 @@ def plan_compression(
                     f"Error processing file: {exc}",
                     file_size_fallback,
                     file_size_fallback,
+                    category='error',
                 )
                 logging.error("Error processing %s: %s", file_path, exc)
+                if progress_callback:
+                    progress_callback(file_path, processed, False, f"Error processing file: {exc}")
         candidates = _filter_high_entropy_directories(
             candidates,
             base_dir=base_dir,
@@ -148,7 +163,13 @@ def _filter_high_entropy_directories(
     for path, file_size, algorithm in candidates:
         skip_record = _locate_skip_record(path.parent, base_dir, skipped_directories)
         if skip_record is not None:
-            stats.record_file_skip(path, skip_record.reason, file_size, file_size)
+            stats.record_file_skip(
+                path,
+                skip_record.reason,
+                file_size,
+                file_size,
+                category=skip_record.category,
+            )
             logging.debug("Skipping %s due to %s", path, skip_record.reason)
             continue
         filtered.append((path, file_size, algorithm))

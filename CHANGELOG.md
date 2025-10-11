@@ -4,7 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2025-10-10
+## [v0.4.0-beta2] - 2025-10-11
+### Added
+- Dry-run entropy analysis (`-d/--dry-run`) to preview projected savings across subdirectories without compressing files
+
+### Changed
+- Base directory entropy sampling now ignores files at the root level so subdirectories drive the savings estimate
+
+## [0.4.0-beta] - 2025-10-10
 ### Added
 - `--min-savings` CLI flag and interactive control to configure the minimum percentage a directory must save before compression runs
 - Estimated savings are now recorded in skip statistics and surfaced in verbose mode so you can review why directories were skipped

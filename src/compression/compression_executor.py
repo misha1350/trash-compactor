@@ -3,7 +3,7 @@ import subprocess
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterator, Optional, Sequence
+from typing import Callable, Iterator, Optional, Sequence
 
 from ..config import COMPRESSION_ALGORITHMS
 from ..file_utils import is_file_compressed
@@ -60,12 +60,16 @@ def execute_compression_plan(
     debug_output: bool,
     xp_workers: int,
     lzx_workers: int,
+    *,
+    stage_callback: Optional[Callable[[str, int], None]] = None,
+    progress_callback: Optional[Callable[[Path, str], None]] = None,
 ) -> None:
     total = len(plan)
     if not total:
         return
 
     stats_lock = threading.Lock()
+    progress_lock = threading.Lock()
 
     def _chunk(entries: Sequence[tuple[Path, int]], size: int) -> Iterator[list[tuple[Path, int]]]:
         current = []
@@ -104,6 +108,7 @@ def execute_compression_plan(
                 path,
                 algo,
             )
+        _notify_progress(path, algo)
 
     def _record_failure(path: Path, file_size: int, algo: str, reason: Optional[str] = None) -> None:
         with stats_lock:
@@ -112,6 +117,16 @@ def execute_compression_plan(
             logging.debug("Compression skipped for %s using %s: %s", path, algo, reason)
         else:
             logging.debug("Compression failed for %s using %s", path, algo)
+        _notify_progress(path, algo)
+
+    def _notify_progress(path: Path, algo: str) -> None:
+        if progress_callback is None:
+            return
+        with progress_lock:
+            try:
+                progress_callback(path, algo)
+            except Exception:  # pragma: no cover - defensive logging
+                logging.debug("Progress callback failed for %s", path, exc_info=True)
 
     def _finalize_success(path: Path, fallback_size: int, algo: str, context: str) -> None:
         try:
@@ -140,6 +155,12 @@ def execute_compression_plan(
     for algorithm, entries in grouped.items():
         workers = lzx_workers if algorithm == 'LZX' else xp_workers
         batches = list(_chunk(entries, _BATCH_SIZE))
+
+        if stage_callback:
+            try:
+                stage_callback(algorithm, len(entries))
+            except Exception:  # pragma: no cover - defensive logging
+                logging.debug("Stage callback failed for %s", algorithm, exc_info=True)
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
